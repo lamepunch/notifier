@@ -1,0 +1,48 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "notifier",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-23",
+  "observability": {
+    "enabled": true,
+  },
+  "upload_source_maps": true,
+  /**
+   * Smart Placement
+   * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+   */
+  "placement": { "mode": "smart" },
+  /**
+   * Environment Variables
+   * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+   * Note: Use secrets to store sensitive data.
+   * https://developers.cloudflare.com/workers/configuration/secrets/
+   */
+  "vars": {
+    "DISCORD_DEFAULT_CHANNEL": "1508481995917754418",
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SUBSCRIPTIONS",
+      "id": "e63f654438284b74afc969cbb88819e7",
+    },
+  ],
+  "env": {
+    "staging": {
+      "name": "notifier-staging",
+      "vars": {
+        "DISCORD_DEFAULT_CHANNEL": "883622312333701140",
+      },
+      "kv_namespaces": [
+        {
+          "binding": "SUBSCRIPTIONS",
+          "id": "fdde8f74d97945cab3e1a468a456b63d",
+        },
+      ],
+    },
+  },
+}
