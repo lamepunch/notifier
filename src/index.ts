@@ -6,6 +6,7 @@ import type {
 } from "./types.d.ts";
 
 import { env } from "cloudflare:workers";
+import XMLParser from "@nodable/flexible-xml-parser";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -275,25 +276,37 @@ async function subscribeToYouTubeChannel(channelId: string, callbackUrl: string)
 }
 
 function parseYouTubeFeed(xml: string): YouTubeVideo[] {
-  let videos: YouTubeVideo[] = [];
-  let matches = xml.matchAll(/<entry[^>]*>([\s\S]*?)<\/entry>/g);
+  let parser = new XMLParser();
+  let feed = parser.parse(xml) as {
+    feed?: { entry?: YouTubeFeedEntry | YouTubeFeedEntry[] };
+  };
 
-  for (let match of matches) {
-    let entry = match[1];
-    let videoId = extractTag(entry, "yt:videoId");
-    let channelId = extractTag(entry, "yt:channelId");
-    let title = extractTag(entry, "title");
-    let channelName = extractAuthorName(entry);
-    let published = extractTag(entry, "published");
-    let updated = extractTag(entry, "updated");
+  let entries = feed.feed?.entry;
+  if (!entries) return [];
+
+  let entryArray = Array.isArray(entries) ? entries : [entries];
+  let videos: YouTubeVideo[] = [];
+
+  for (let entry of entryArray) {
+    let videoId = entry["yt:videoId"];
+    let channelId = entry["yt:channelId"];
+    let title = entry.title;
+    let published = entry.published;
+    let updated = entry.updated;
 
     if (!videoId || !title || !channelId) continue;
 
+    let author = entry.author;
+    let channelName =
+      typeof author === "object" && author && "name" in author
+        ? author.name
+        : "YouTube";
+
     videos.push({
       videoId,
-      title: decodeXml(title),
+      title,
       channelId,
-      channelName: decodeXml(channelName || "YouTube"),
+      channelName: typeof channelName === "string" ? channelName : "YouTube",
       published: published || updated || "",
       updated: updated || published || "",
       videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
@@ -303,27 +316,11 @@ function parseYouTubeFeed(xml: string): YouTubeVideo[] {
   return videos;
 }
 
-function extractTag(xml: string, tag: string): string | undefined {
-  let match = xml.match(new RegExp(`<${tag}>([^<]+)</${tag}>`));
-  return match ? match[1] : undefined;
-}
-
-function extractAuthorName(entry: string): string | undefined {
-  let match = entry.match(/<author[^>]*>([\s\S]*?)<\/author>/);
-  if (!match) return undefined;
-  let nameMatch = match[1].match(/<name>([^<]+)<\/name>/);
-  return nameMatch ? nameMatch[1] : undefined;
-}
-
-function decodeXml(text: string): string {
-  return text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) =>
-      String.fromCharCode(parseInt(code, 16)),
-    );
+interface YouTubeFeedEntry {
+  "yt:videoId"?: string;
+  "yt:channelId"?: string;
+  title?: string;
+  published?: string;
+  updated?: string;
+  author?: { name?: string };
 }
