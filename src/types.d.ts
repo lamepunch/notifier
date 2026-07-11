@@ -20,3 +20,15 @@ export interface Subscription {
   links?: Record<string, string>;
   mentions?: string[];
 }
+
+export interface YouTubeVideo {
+  videoId: string;
+  title: string;
+  channelId: string;
+  channelName: string;
+  published: string;
+  updated: string;
+  videoUrl: string;
+}
+
+export type YouTubeSubscriptions = string[];
