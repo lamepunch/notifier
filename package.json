@@ -1,6 +1,6 @@
 {
   "name": "notifier",
-  "version": "2026.5",
+  "version": "2026.6",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
@@ -12,5 +12,8 @@
     "@types/node": "^25.9.1",
     "typescript": "^5.5.2",
     "wrangler": "^4.94.0"
+  },
+  "dependencies": {
+    "@nodable/flexible-xml-parser": "^1.10.0"
   }
 }

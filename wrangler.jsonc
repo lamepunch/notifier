@@ -7,6 +7,7 @@
   "name": "notifier",
   "main": "src/index.ts",
   "compatibility_date": "2026-05-23",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
   },
@@ -24,6 +25,9 @@
    */
   "vars": {
     "DISCORD_DEFAULT_CHANNEL": "1508481995917754418",
+    "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1522051130199380068",
+    // Public callback URL used for YouTube WebSub subscriptions.
+    "SERVICE_URL": "https://notifier.grenuttag.workers.dev",
   },
   "kv_namespaces": [
     {
@@ -31,11 +35,19 @@
       "id": "e63f654438284b74afc969cbb88819e7",
     },
   ],
+  "secrets": {
+    "required": ["DISCORD_TOKEN"],
+  },
+  "triggers": {
+    "crons": ["0 0 * * *"],
+  },
   "env": {
     "staging": {
       "name": "notifier-staging",
       "vars": {
         "DISCORD_DEFAULT_CHANNEL": "883622312333701140",
+        "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1525873566128799865",
+        "SERVICE_URL": "https://notifier-staging.grenuttag.workers.dev",
       },
       "kv_namespaces": [
         {
@@ -43,6 +55,9 @@
           "id": "fdde8f74d97945cab3e1a468a456b63d",
         },
       ],
+      "secrets": {
+        "required": ["DISCORD_TOKEN"],
+      },
     },
   },
 }
