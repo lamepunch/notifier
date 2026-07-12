@@ -1,12 +1,17 @@
 import type {
   LivestreamStatusUpdated,
-  Subscription,
   YouTubeSubscriptions,
-  YouTubeVideo,
 } from "./types.d.ts";
 
-import { env } from "cloudflare:workers";
-import XMLParser from "@nodable/flexible-xml-parser";
+import { processWebhook } from "./events/kick";
+import { scheduled } from "./scheduled";
+import {
+  handleWebSubVerification,
+  parseYouTubeFeed,
+  processYouTubeUpload,
+} from "./events/youtube";
+
+const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -15,7 +20,7 @@ export default {
       return handleWebSubVerification(request);
     }
 
-    // Only allow POST requests
+    // Deny everything else besides POST requests
     if (request.method !== "POST") {
       return new Response(null, { status: 404 });
     }
@@ -46,19 +51,66 @@ export default {
 
     // YouTube PubSubHubbub sends Atom feed notifications
     if (contentType.includes("xml") || contentType.includes("atom")) {
-      let youtubeSubscriptions = await env.SUBSCRIPTIONS.get<YouTubeSubscriptions>(
+      console.log({
+        message: "YouTube notification received",
+        contentType,
+        payload,
+      });
+
+      let subs = await env.SUBSCRIPTIONS.get<YouTubeSubscriptions>(
         "youtube_subscriptions",
         { type: "json" },
       );
 
       let videos = parseYouTubeFeed(payload);
 
-      if (youtubeSubscriptions && youtubeSubscriptions.length > 0) {
+      console.log({
+        message: "YouTube notification parsed",
+        videoCount: videos.length,
+        subscribedChannels: subs,
+      });
+
+      if (subs && subs.length > 0) {
         for (let video of videos) {
-          if (
-            video.published === video.updated &&
-            youtubeSubscriptions.includes(video.channelId)
-          ) {
+          let isSubscribed = subs.includes(video.channelId);
+
+          // Pings also fire for edits of old videos and are retried by the
+          // hub, so "new upload" means: published recently AND not already
+          // sent (tracked in KV).
+          let isRecent =
+            Date.now() - new Date(video.published).getTime() < ONE_DAY_IN_MS;
+
+          let sentKey = `youtube_video_sent:${video.videoId}`;
+
+          let alreadySent =
+            isSubscribed && isRecent
+              ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
+              : false;
+
+          // Only accept videos where we can find a matching subscription
+          // and we haven't sent a notification yet.
+          let accepted = isSubscribed && isRecent && !alreadySent;
+
+          console.log({
+            message: accepted
+              ? "Video accepted, sending notification"
+              : "Video skipped",
+            videoId: video.videoId,
+            channelId: video.channelId,
+            published: video.published,
+            updated: video.updated,
+            isSubscribed,
+            isRecent,
+            alreadySent,
+          });
+
+          if (accepted) {
+            // ponytail: KV is eventually consistent, so pings landing in
+            // different colos within ~60s could double-send; a Durable
+            // Object would make this exactly-once if that ever matters.
+            await env.SUBSCRIPTIONS.put(sentKey, video.published, {
+              expirationTtl: 7 * 24 * 60 * 60,
+            });
             try {
               ctx.waitUntil(processYouTubeUpload(video));
             } catch (error) {
@@ -71,256 +123,14 @@ export default {
       return new Response();
     }
 
+    console.log({
+      message: "POST request matched no handler",
+      eventType,
+      contentType,
+      payload,
+    });
     return new Response();
   },
 
-  async scheduled(controller, env, ctx): Promise<void> {
-    if (!env.SERVICE_URL) {
-      console.warn("SERVICE_URL is not set, skipping YouTube WebSub subscriptions");
-      return;
-    }
-
-    await subscribeToYouTubeChannels(env.SERVICE_URL);
-  },
+  scheduled,
 } satisfies ExportedHandler<Env>;
-
-function handleWebSubVerification(request: Request): Response {
-  let url = new URL(request.url);
-  let hubMode = url.searchParams.get("hub.mode");
-  let hubChallenge = url.searchParams.get("hub.challenge");
-
-  if (hubChallenge && (hubMode === "subscribe" || hubMode === "unsubscribe")) {
-    return new Response(hubChallenge, {
-      headers: { "Content-Type": "text/plain" },
-    });
-  }
-
-  return new Response(null, { status: 404 });
-}
-
-async function processWebhook(data: LivestreamStatusUpdated) {
-  let { broadcaster, title } = data;
-
-  // Construct URL from slug
-  var url = `https://kick.com/${broadcaster.channel_slug}`;
-
-  // Fetch subscriptions fresh from KV on every request
-  let subscriptions = await env.SUBSCRIPTIONS.get<Subscription[]>(
-    "subscriptions",
-    { type: "json" },
-  );
-
-  if (!subscriptions) {
-    throw new Error("subscriptions key missing from KV");
-  }
-
-  // Find matching subscription based on the broadcaster's user_id
-  let subscription = subscriptions.find((sub) => sub.id === broadcaster.user_id);
-
-  // Die if we can't find a subscription
-  if (!subscription) {
-    throw new Error("No valid subscription found");
-  }
-
-  let { channel, links, mentions } = subscription;
-
-  // If no channel is provided then use fallback value
-  if (!channel) {
-    channel = env.DISCORD_DEFAULT_CHANNEL;
-  }
-
-  let description = `:link: [Kick](${url})`;
-  if (links) {
-    description +=
-      " · " +
-      Object.entries(links)
-        .map(
-          ([name, link]) =>
-            `[${name[0].toUpperCase() + name.slice(1)}](${link})`,
-        )
-        .join(" · ");
-  }
-
-  let content = ":red_circle: Stream has gone live!";
-  if (mentions) {
-    content = mentions.map((id) => `<@${id}>`).join(" ") + " " + content;
-  }
-
-  let message = {
-    content,
-    embeds: [
-      {
-        title: `:arrow_right: ${title}`,
-        description,
-        author: {
-          name: broadcaster.username,
-          icon_url: broadcaster.profile_picture,
-        },
-        color: "1752220",
-      },
-    ],
-  };
-
-  console.log({ message: "Discord message constructed", content: message });
-
-  // Send message to Discord channel
-  let response = await fetch(
-    `https://discord.com/api/v10/channels/${channel}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bot ${env.DISCORD_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(message),
-    },
-  );
-
-  if (!response.ok) {
-    const body = await response.text();
-    console.error({ message: "Discord API request failed", body });
-  }
-}
-
-async function processYouTubeUpload(video: YouTubeVideo) {
-  let { videoId, title, channelName, channelId, videoUrl } = video;
-  let channel = env.DISCORD_DEFAULT_CHANNEL;
-  let thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-  let message = {
-    content: ":new: New YouTube upload!",
-    embeds: [
-      {
-        title,
-        url: videoUrl,
-        description: `:arrow_right: [Watch on YouTube](${videoUrl})`,
-        image: { url: thumbnailUrl },
-        author: {
-          name: channelName,
-          url: `https://www.youtube.com/channel/${channelId}`,
-        },
-        color: 16711680,
-      },
-    ],
-  };
-
-  console.log({ message: "YouTube Discord message constructed", content: message });
-
-  let response = await fetch(
-    `https://discord.com/api/v10/channels/${channel}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bot ${env.DISCORD_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(message),
-    },
-  );
-
-  if (!response.ok) {
-    const body = await response.text();
-    console.error({ message: "Discord API request failed for YouTube upload", body });
-  }
-}
-
-async function subscribeToYouTubeChannels(callbackUrl: string) {
-  let youtubeSubscriptions = await env.SUBSCRIPTIONS.get<YouTubeSubscriptions>(
-    "youtube_subscriptions",
-    { type: "json" },
-  );
-
-  if (!youtubeSubscriptions || youtubeSubscriptions.length === 0) {
-    console.log("No YouTube subscriptions configured");
-    return;
-  }
-
-  await Promise.all(
-    youtubeSubscriptions.map((channelId) =>
-      subscribeToYouTubeChannel(channelId, callbackUrl).catch((error) => {
-        console.error({ message: "YouTube subscription failed", channelId, error });
-      }),
-    ),
-  );
-}
-
-async function subscribeToYouTubeChannel(channelId: string, callbackUrl: string) {
-  let params = new URLSearchParams();
-  params.set("hub.mode", "subscribe");
-  params.set(
-    "hub.topic",
-    `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`,
-  );
-  params.set("hub.callback", callbackUrl);
-  params.set("hub.lease_seconds", "432000");
-  params.set("hub.verify", "async");
-
-  let response = await fetch("https://pubsubhubbub.appspot.com/subscribe", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params.toString(),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    console.error({
-      message: "YouTube WebSub subscription failed",
-      status: response.status,
-      body,
-      channelId,
-    });
-    return;
-  }
-
-  console.log({ message: "YouTube WebSub subscription requested", channelId });
-}
-
-function parseYouTubeFeed(xml: string): YouTubeVideo[] {
-  let parser = new XMLParser();
-  let feed = parser.parse(xml) as {
-    feed?: { entry?: YouTubeFeedEntry | YouTubeFeedEntry[] };
-  };
-
-  let entries = feed.feed?.entry;
-  if (!entries) return [];
-
-  let entryArray = Array.isArray(entries) ? entries : [entries];
-  let videos: YouTubeVideo[] = [];
-
-  for (let entry of entryArray) {
-    let videoId = entry["yt:videoId"];
-    let channelId = entry["yt:channelId"];
-    let title = entry.title;
-    let published = entry.published;
-    let updated = entry.updated;
-
-    if (!videoId || !title || !channelId) continue;
-
-    let author = entry.author;
-    let channelName =
-      typeof author === "object" && author && "name" in author
-        ? author.name
-        : "YouTube";
-
-    videos.push({
-      videoId,
-      title,
-      channelId,
-      channelName: typeof channelName === "string" ? channelName : "YouTube",
-      published: published || updated || "",
-      updated: updated || published || "",
-      videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
-    });
-  }
-
-  return videos;
-}
-
-interface YouTubeFeedEntry {
-  "yt:videoId"?: string;
-  "yt:channelId"?: string;
-  title?: string;
-  published?: string;
-  updated?: string;
-  author?: { name?: string };
-}

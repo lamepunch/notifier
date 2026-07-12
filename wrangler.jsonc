@@ -25,6 +25,7 @@
    */
   "vars": {
     "DISCORD_DEFAULT_CHANNEL": "1508481995917754418",
+    "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1522051130199380068",
     // Public callback URL used for YouTube WebSub subscriptions.
     "SERVICE_URL": "https://notifier.grenuttag.workers.dev",
   },
@@ -45,6 +46,7 @@
       "name": "notifier-staging",
       "vars": {
         "DISCORD_DEFAULT_CHANNEL": "883622312333701140",
+        "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1525873566128799865",
         "SERVICE_URL": "https://notifier-staging.grenuttag.workers.dev",
       },
       "kv_namespaces": [

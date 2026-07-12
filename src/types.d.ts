@@ -32,3 +32,12 @@ export interface YouTubeVideo {
 }
 
 export type YouTubeSubscriptions = string[];
+
+export interface YouTubeFeedEntry {
+  "yt:videoId"?: string;
+  "yt:channelId"?: string;
+  title?: string;
+  published?: string;
+  updated?: string;
+  author?: { name?: string };
+}
