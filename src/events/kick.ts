@@ -10,6 +10,7 @@ export async function processWebhook(data: LivestreamStatusUpdated) {
   var url = `https://kick.com/${broadcaster.channel_slug}`;
 
   // Fetch subscriptions fresh from KV on every request
+  // Find matching subscription based on the broadcaster's user_id
   let sub = await env.SUBSCRIPTIONS.get<Subscription>(
     kickKey(broadcaster.user_id),
     { type: "json" },
