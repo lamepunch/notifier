@@ -83,6 +83,8 @@ export default {
             ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
             : false;
 
+        // Only accept videos where we can find a matching subscription
+        // and we haven't sent a notification yet.
         let accepted = isSubscribed && isRecent && !alreadySent;
 
         console.log({

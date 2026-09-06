@@ -6,13 +6,16 @@ import { kickKey } from "../kv";
 export async function processWebhook(data: LivestreamStatusUpdated) {
   let { broadcaster, title } = data;
 
+  // Construct URL from slug
   var url = `https://kick.com/${broadcaster.channel_slug}`;
 
+  // Fetch subscriptions fresh from KV on every request
   let sub = await env.SUBSCRIPTIONS.get<Subscription>(
     kickKey(broadcaster.user_id),
     { type: "json" },
   );
 
+  // Die if we can't find a subscription
   if (!sub || !sub.active) {
     console.log({
       message: "Kick subscription missing or inactive",
@@ -25,6 +28,7 @@ export async function processWebhook(data: LivestreamStatusUpdated) {
 
   let { channel, links, mentions } = sub;
 
+  // If no channel is provided then use fallback value
   if (!channel) {
     channel = env.DISCORD_DEFAULT_CHANNEL;
   }
@@ -63,6 +67,7 @@ export async function processWebhook(data: LivestreamStatusUpdated) {
 
   console.log({ message: "Discord message constructed", content: message });
 
+  // Send message to Discord channel
   let response = await fetch(
     `https://discord.com/api/v10/channels/${channel}/messages`,
     {
