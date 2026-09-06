@@ -6,10 +6,13 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "admin": "tsx scripts/admin.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "commander": "^14.0.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.2",
     "wrangler": "^4.94.0"
   },

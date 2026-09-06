@@ -1,33 +1,30 @@
 import type { LivestreamStatusUpdated, Subscription } from "../types.d.ts";
 
 import { env } from "cloudflare:workers";
+import { kickKey } from "../kv";
 
 export async function processWebhook(data: LivestreamStatusUpdated) {
   let { broadcaster, title } = data;
 
-  // Construct URL from slug
   var url = `https://kick.com/${broadcaster.channel_slug}`;
 
-  // Fetch subscriptions fresh from KV on every request
-  let subs = await env.SUBSCRIPTIONS.get<Subscription[]>("subscriptions", {
-    type: "json",
-  });
+  let sub = await env.SUBSCRIPTIONS.get<Subscription>(
+    kickKey(broadcaster.user_id),
+    { type: "json" },
+  );
 
-  if (!subs) {
-    throw new Error("subscriptions key missing from KV");
-  }
-
-  // Find matching subscription based on the broadcaster's user_id
-  let sub = subs.find((sub) => sub.id === broadcaster.user_id);
-
-  // Die if we can't find a subscription
-  if (!sub) {
-    throw new Error("No valid subscription found");
+  if (!sub || !sub.active) {
+    console.log({
+      message: "Kick subscription missing or inactive",
+      userId: broadcaster.user_id,
+      slug: broadcaster.channel_slug,
+      active: sub?.active ?? false,
+    });
+    return;
   }
 
   let { channel, links, mentions } = sub;
 
-  // If no channel is provided then use fallback value
   if (!channel) {
     channel = env.DISCORD_DEFAULT_CHANNEL;
   }
@@ -66,7 +63,6 @@ export async function processWebhook(data: LivestreamStatusUpdated) {
 
   console.log({ message: "Discord message constructed", content: message });
 
-  // Send message to Discord channel
   let response = await fetch(
     `https://discord.com/api/v10/channels/${channel}/messages`,
     {

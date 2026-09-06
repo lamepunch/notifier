@@ -16,9 +16,20 @@ export interface LivestreamStatusUpdated {
 
 export interface Subscription {
   id: number;
+  slug: string;
+  active: boolean;
   channel?: string;
   links?: Record<string, string>;
   mentions?: string[];
+}
+
+export interface YouTubeSubscription {
+  id: string;
+  name: string;
+  url: string;
+  active: boolean;
+  icon?: string;
+  channel?: string;
 }
 
 export interface YouTubeVideo {
@@ -30,8 +41,6 @@ export interface YouTubeVideo {
   updated: string;
   videoUrl: string;
 }
-
-export type YouTubeSubscriptions = string[];
 
 export interface YouTubeFeedEntry {
   "yt:videoId"?: string;

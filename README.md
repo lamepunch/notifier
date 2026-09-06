@@ -11,15 +11,34 @@ npm install
 cp .dev.vars.example .dev.vars   # fill in DISCORD_TOKEN
 ```
 
-Seed local KV with the channels to watch:
+Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
+
+| Key | Value |
+|-----|--------|
+| `kick:{user_id}` | `{ id, slug, active, channel?, links?, mentions? }` |
+| `youtube:{channelId}` | `{ id, name, url, active, icon?, channel? }` |
+
+`active: false` keeps the record but skips Discord notifies. The daily cron
+only refreshes WebSub for **active** YouTube channels.
+
+Admin CLI (lookup/KV writes are still stubs):
 
 ```sh
-wrangler kv key put subscriptions --path subscriptions.json --binding SUBSCRIPTIONS --local --env=""
-wrangler kv key put youtube_subscriptions --path youtube.json --binding SUBSCRIPTIONS --local --env=""
+npm run admin -- --help
+npm run admin -- list
+npm run admin -- add kick <slug> [--channel <discordId>]
+npm run admin -- add youtube <handle> [--channel <discordId>]
+npm run admin -- activate kick <slug>
+npm run admin -- deactivate youtube <handle>
+npm run admin -- test kick <slug>
 ```
 
-`subscriptions` is an array of `{ id, channel?, links?, mentions? }` (Kick
-broadcaster user IDs), `youtube_subscriptions` an array of YouTube channel IDs.
+Until the CLI writes KV, seed local keys with wrangler:
+
+```sh
+wrangler kv key put kick:123 --path kick.json --binding SUBSCRIPTIONS --local --env=""
+wrangler kv key put youtube:UCxxxx --path youtube.json --binding SUBSCRIPTIONS --local --env=""
+```
 
 Run locally:
 
@@ -38,5 +57,5 @@ Use `--env staging` instead of `--env=""` to target staging. Always pass one
 of the two — the config defines a staging environment, so wrangler wants an
 explicit target.
 
-After deploying, the daily cron subscribes to YouTube channels via WebSub;
-Kick webhooks must be pointed at the worker URL from Kick's side.
+After deploying, the daily cron subscribes to **active** YouTube channels via
+WebSub; Kick webhooks must be pointed at the worker URL from Kick's side.

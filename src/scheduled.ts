@@ -1,6 +1,7 @@
-import type { YouTubeSubscriptions } from "./types.d.ts";
+import type { YouTubeSubscription } from "./types.d.ts";
 
 import { env } from "cloudflare:workers";
+import { YOUTUBE_PREFIX } from "./kv";
 
 export async function scheduled(): Promise<void> {
   if (!env.SERVICE_URL) {
@@ -13,23 +14,56 @@ export async function scheduled(): Promise<void> {
   await subscribeToYouTubeChannels(env.SERVICE_URL);
 }
 
-async function subscribeToYouTubeChannels(callbackUrl: string) {
-  let subs = await env.SUBSCRIPTIONS.get<YouTubeSubscriptions>(
-    "youtube_subscriptions",
-    { type: "json" },
-  );
+async function listYouTubeKeys(): Promise<string[]> {
+  let keys: string[] = [];
+  let cursor: string | undefined;
 
-  if (!subs || subs.length === 0) {
-    console.log("No YouTube subscriptions configured");
+  do {
+    let page = await env.SUBSCRIPTIONS.list({
+      prefix: YOUTUBE_PREFIX,
+      cursor,
+    });
+    keys.push(...page.keys.map((key) => key.name));
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor);
+
+  return keys;
+}
+
+async function loadYouTubeSubscriptions(
+  keys: string[],
+): Promise<YouTubeSubscription[]> {
+  let subs: YouTubeSubscription[] = [];
+
+  // ponytail: KV bulk get is capped at 100 keys per call
+  for (let i = 0; i < keys.length; i += 100) {
+    let batch = keys.slice(i, i + 100);
+    let values = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(batch, {
+      type: "json",
+    });
+    for (let value of values.values()) {
+      if (value) subs.push(value);
+    }
+  }
+
+  return subs;
+}
+
+async function subscribeToYouTubeChannels(callbackUrl: string) {
+  let keys = await listYouTubeKeys();
+  let subs = (await loadYouTubeSubscriptions(keys)).filter((sub) => sub.active);
+
+  if (subs.length === 0) {
+    console.log("No active YouTube subscriptions configured");
     return;
   }
 
   await Promise.all(
-    subs.map((channelId) =>
-      subscribeToYouTubeChannel(channelId, callbackUrl).catch((error) => {
+    subs.map((sub) =>
+      subscribeToYouTubeChannel(sub.id, callbackUrl).catch((error) => {
         console.error({
           message: "YouTube subscription failed",
-          channelId,
+          channelId: sub.id,
           error,
         });
       }),

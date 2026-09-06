@@ -1,7 +1,4 @@
-import type {
-  LivestreamStatusUpdated,
-  YouTubeSubscriptions,
-} from "./types.d.ts";
+import type { LivestreamStatusUpdated, YouTubeSubscription } from "./types.d.ts";
 
 import { processWebhook } from "./events/kick";
 import { scheduled } from "./scheduled";
@@ -10,6 +7,7 @@ import {
   parseYouTubeFeed,
   processYouTubeUpload,
 } from "./events/youtube";
+import { youtubeKey } from "./kv";
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -57,65 +55,60 @@ export default {
         payload,
       });
 
-      let subs = await env.SUBSCRIPTIONS.get<YouTubeSubscriptions>(
-        "youtube_subscriptions",
-        { type: "json" },
-      );
-
       let videos = parseYouTubeFeed(payload);
 
       console.log({
         message: "YouTube notification parsed",
         videoCount: videos.length,
-        subscribedChannels: subs,
       });
 
-      if (subs && subs.length > 0) {
-        for (let video of videos) {
-          let isSubscribed = subs.includes(video.channelId);
+      for (let video of videos) {
+        let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
+          youtubeKey(video.channelId),
+          { type: "json" },
+        );
 
-          // Pings also fire for edits of old videos and are retried by the
-          // hub, so "new upload" means: published recently AND not already
-          // sent (tracked in KV).
-          let isRecent =
-            Date.now() - new Date(video.published).getTime() < ONE_DAY_IN_MS;
+        let isSubscribed = !!sub?.active;
 
-          let sentKey = `youtube_video_sent:${video.videoId}`;
+        // Pings also fire for edits of old videos and are retried by the
+        // hub, so "new upload" means: published recently AND not already
+        // sent (tracked in KV).
+        let isRecent =
+          Date.now() - new Date(video.published).getTime() < ONE_DAY_IN_MS;
 
-          let alreadySent =
-            isSubscribed && isRecent
-              ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
-              : false;
+        let sentKey = `youtube_video_sent:${video.videoId}`;
 
-          // Only accept videos where we can find a matching subscription
-          // and we haven't sent a notification yet.
-          let accepted = isSubscribed && isRecent && !alreadySent;
+        let alreadySent =
+          isSubscribed && isRecent
+            ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
+            : false;
 
-          console.log({
-            message: accepted
-              ? "Video accepted, sending notification"
-              : "Video skipped",
-            videoId: video.videoId,
-            channelId: video.channelId,
-            published: video.published,
-            updated: video.updated,
-            isSubscribed,
-            isRecent,
-            alreadySent,
+        let accepted = isSubscribed && isRecent && !alreadySent;
+
+        console.log({
+          message: accepted
+            ? "Video accepted, sending notification"
+            : "Video skipped",
+          videoId: video.videoId,
+          channelId: video.channelId,
+          published: video.published,
+          updated: video.updated,
+          isSubscribed,
+          isRecent,
+          alreadySent,
+        });
+
+        if (accepted && sub) {
+          // ponytail: KV is eventually consistent, so pings landing in
+          // different colos within ~60s could double-send; a Durable
+          // Object would make this exactly-once if that ever matters.
+          await env.SUBSCRIPTIONS.put(sentKey, video.published, {
+            expirationTtl: 7 * 24 * 60 * 60,
           });
-
-          if (accepted) {
-            // ponytail: KV is eventually consistent, so pings landing in
-            // different colos within ~60s could double-send; a Durable
-            // Object would make this exactly-once if that ever matters.
-            await env.SUBSCRIPTIONS.put(sentKey, video.published, {
-              expirationTtl: 7 * 24 * 60 * 60,
-            });
-            try {
-              ctx.waitUntil(processYouTubeUpload(video));
-            } catch (error) {
-              console.error(error);
-            }
+          try {
+            ctx.waitUntil(processYouTubeUpload(video, sub));
+          } catch (error) {
+            console.error(error);
           }
         }
       }

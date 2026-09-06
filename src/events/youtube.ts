@@ -1,4 +1,8 @@
-import type { YouTubeFeedEntry, YouTubeVideo } from "../types.d.ts";
+import type {
+  YouTubeFeedEntry,
+  YouTubeSubscription,
+  YouTubeVideo,
+} from "../types.d.ts";
 
 import { env } from "cloudflare:workers";
 import XMLParser from "@nodable/flexible-xml-parser";
@@ -29,9 +33,12 @@ export function handleWebSubVerification(request: Request): Response {
   return new Response(null, { status: 404 });
 }
 
-export async function processYouTubeUpload(video: YouTubeVideo) {
+export async function processYouTubeUpload(
+  video: YouTubeVideo,
+  sub: YouTubeSubscription,
+) {
   let { videoId, title, channelName, channelId, videoUrl } = video;
-  let channel = env.DISCORD_DEFAULT_YOUTUBE_CHANNEL;
+  let channel = sub.channel ?? env.DISCORD_DEFAULT_YOUTUBE_CHANNEL;
   let thumbnailUrl = `https://i3.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
   let message = {
@@ -42,8 +49,9 @@ export async function processYouTubeUpload(video: YouTubeVideo) {
         url: videoUrl,
         image: { url: thumbnailUrl },
         author: {
-          name: channelName,
-          url: `https://www.youtube.com/channel/${channelId}`,
+          name: sub.name || channelName,
+          url: sub.url || `https://www.youtube.com/channel/${channelId}`,
+          ...(sub.icon ? { icon_url: sub.icon } : {}),
         },
         color: 16711680,
       },
