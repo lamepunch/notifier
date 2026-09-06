@@ -11,7 +11,7 @@ See `AGENTS.md` for Cloudflare Workers documentation pointers and the rule that 
 | `npm run dev` | Local dev server (wrangler dev) on http://localhost:8787 |
 | `npm run deploy` | Deploy to Cloudflare |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` — **run after any change to bindings/vars/secrets in `wrangler.jsonc`** |
-| `npm run admin -- <cmd>` | KV/test CLI (`scripts/admin.ts`). Lookup and writes are stubs. |
+| `npm run admin -- <cmd>` | KV/test CLI (`scripts/admin.ts`). Uses `getPlatformProxy<Env>()` for `env.SUBSCRIPTIONS`. `list` is live; add/lookup/test writes are stubs. |
 
 **Always pass `--env` when deploying.** Because `wrangler.jsonc` defines an `env.staging` block, wrangler warns on any `deploy`/`dev` call without an explicit target. Use `--env=""` for production (the top-level config) and `--env staging` for staging — this matches what `wrangler dev`, `wrangler secret put`, and `wrangler kv key put` already require to target the right environment.
 

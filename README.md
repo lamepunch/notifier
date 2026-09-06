@@ -21,7 +21,9 @@ Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
 `active: false` keeps the record but skips Discord notifies. The daily cron
 only refreshes WebSub for **active** YouTube channels.
 
-Admin CLI (lookup/KV writes are still stubs):
+Admin CLI uses Wrangler's `getPlatformProxy` so commands share the Worker's
+`env.SUBSCRIPTIONS` binding (local persist matches `wrangler dev`). `list`
+reads prefix keys; add/lookup/test writes are still stubs:
 
 ```sh
 npm run admin -- --help
