@@ -50,3 +50,7 @@ export interface YouTubeFeedEntry {
   updated?: string;
   author?: { name?: string };
 }
+
+export interface YouTubeSubscribeJob {
+  channelId: string;
+}

@@ -1,6 +1,6 @@
 {
   "name": "notifier",
-  "version": "2026.6",
+  "version": "2026.9",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

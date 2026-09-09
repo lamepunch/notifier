@@ -41,23 +41,21 @@
   "triggers": {
     "crons": ["0 0 * * *"],
   },
-  "env": {
-    "staging": {
-      "name": "notifier-staging",
-      "vars": {
-        "DISCORD_DEFAULT_CHANNEL": "883622312333701140",
-        "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1525873566128799865",
-        "SERVICE_URL": "https://notifier-staging.grenuttag.workers.dev",
+  "queues": {
+    "producers": [
+      {
+        "binding": "YOUTUBE_SUBSCRIBE",
+        "queue": "notifier-youtube-websub",
       },
-      "kv_namespaces": [
-        {
-          "binding": "SUBSCRIPTIONS",
-          "id": "fdde8f74d97945cab3e1a468a456b63d",
-        },
-      ],
-      "secrets": {
-        "required": ["DISCORD_TOKEN"],
+    ],
+    "consumers": [
+      {
+        "queue": "notifier-youtube-websub",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "retry_delay": 60,
       },
-    },
+    ],
   },
 }

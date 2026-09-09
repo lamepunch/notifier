@@ -1,0 +1,26 @@
+/**
+ * Admin CLI only. Do not pass this to `wrangler dev` or `wrangler deploy`.
+ * `scripts/admin.ts` loads it when `--remote` is set so SUBSCRIPTIONS and
+ * YOUTUBE_SUBSCRIBE hit the live namespace/queue instead of `.wrangler/state/`.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "notifier",
+  "compatibility_date": "2026-05-23",
+  "kv_namespaces": [
+    {
+      "binding": "SUBSCRIPTIONS",
+      "id": "e63f654438284b74afc969cbb88819e7",
+      "remote": true,
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "YOUTUBE_SUBSCRIBE",
+        "queue": "notifier-youtube-websub",
+        "remote": true,
+      },
+    ],
+  },
+}

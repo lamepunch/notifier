@@ -1,7 +1,11 @@
-import type { LivestreamStatusUpdated, YouTubeSubscription } from "./types.d.ts";
+import type {
+  LivestreamStatusUpdated,
+  YouTubeSubscribeJob,
+  YouTubeSubscription,
+} from "./types.d.ts";
 
 import { processWebhook } from "./events/kick";
-import { scheduled } from "./scheduled";
+import { queue, scheduled } from "./scheduled";
 import {
   handleWebSubVerification,
   parseYouTubeFeed,
@@ -128,4 +132,5 @@ export default {
   },
 
   scheduled,
-} satisfies ExportedHandler<Env>;
+  queue,
+} satisfies ExportedHandler<Env, YouTubeSubscribeJob>;

@@ -19,28 +19,35 @@ Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
 | `youtube:{channelId}` | `{ id, name, url, active, icon?, channel? }` |
 
 `active: false` keeps the record but skips Discord notifies. The daily cron
-only refreshes WebSub for **active** YouTube channels.
+enqueues a WebSub refresh job per **active** YouTube channel; the queue
+consumer posts to the hub and retries on failure.
+
+Create the Queues once before the first deploy (account-level names):
+
+```sh
+npx wrangler queues create notifier-youtube-websub
+```
 
 Admin CLI uses Wrangler's `getPlatformProxy` so commands share the Worker's
-`env.SUBSCRIPTIONS` binding (local persist matches `wrangler dev`). `list`
-reads prefix keys; add/lookup/test writes are still stubs:
+`env.SUBSCRIPTIONS` binding (local persist matches `wrangler dev`). `add`
+looks up a Kick slug or YouTube handle and upserts the KV record. `list` is
+live; activate/test writes are still stubs:
 
 ```sh
 npm run admin -- --help
 npm run admin -- list
-npm run admin -- add kick <slug> [--channel <discordId>]
-npm run admin -- add youtube <handle> [--channel <discordId>]
-npm run admin -- activate kick <slug>
-npm run admin -- deactivate youtube <handle>
-npm run admin -- test kick <slug>
+npm run admin -- list youtube
+npm run admin -- add kick <alias> [--channel <discordId>]
+npm run admin -- add youtube <alias>
+npm run admin -- activate youtube <alias>
+npm run admin -- deactivate kick <alias>
+npm run admin -- test kick <alias>
 ```
 
-Until the CLI writes KV, seed local keys with wrangler:
-
-```sh
-wrangler kv key put kick:123 --path kick.json --binding SUBSCRIPTIONS --local --env=""
-wrangler kv key put youtube:UCxxxx --path youtube.json --binding SUBSCRIPTIONS --local --env=""
-```
+`add` writes local KV by default. Use `--remote` to write production KV
+and enqueue on the production WebSub queue (`wrangler.admin.jsonc`).
+A YouTube add also enqueues a subscribe job immediately; local jobs are
+consumed when `wrangler dev` is running.
 
 Run locally:
 
@@ -51,13 +58,10 @@ npm run dev
 ## Deploy
 
 ```sh
-wrangler secret put DISCORD_TOKEN --env=""
-npm run deploy -- --env=""
+wrangler secret put DISCORD_TOKEN
+npm run deploy
 ```
 
-Use `--env staging` instead of `--env=""` to target staging. Always pass one
-of the two — the config defines a staging environment, so wrangler wants an
-explicit target.
-
-After deploying, the daily cron subscribes to **active** YouTube channels via
-WebSub; Kick webhooks must be pointed at the worker URL from Kick's side.
+After deploying, the daily cron enqueues WebSub refreshes for **active**
+YouTube channels (retries until the hub accepts); Kick webhooks must be
+pointed at the worker URL from Kick's side.
