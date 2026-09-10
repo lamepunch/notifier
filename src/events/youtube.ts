@@ -1,7 +1,15 @@
-import type { YouTubeFeedEntry, YouTubeVideo } from "../types.d.ts";
-
-import { env } from "cloudflare:workers";
 import XMLParser from "@nodable/flexible-xml-parser";
+import { env } from "cloudflare:workers";
+
+import type {
+  YouTubeFeed,
+  YouTubeSubscription,
+  YouTubeVideo,
+} from "../types.d.ts";
+
+import { DISCORD_API_BASE } from "../constants";
+
+const YOUTUBE_EMBED_COLOR = 16_711_680;
 
 export function handleWebSubVerification(request: Request): Response {
   let url = new URL(request.url);
@@ -9,8 +17,10 @@ export function handleWebSubVerification(request: Request): Response {
   let hubChallenge = url.searchParams.get("hub.challenge");
   let hubTopic = url.searchParams.get("hub.topic");
   let hubLease = url.searchParams.get("hub.lease_seconds");
+  let isValidChallenge =
+    !!hubChallenge && (hubMode === "subscribe" || hubMode === "unsubscribe");
 
-  if (hubChallenge && (hubMode === "subscribe" || hubMode === "unsubscribe")) {
+  if (isValidChallenge) {
     console.log({
       message: "WebSub verification accepted",
       hubMode,
@@ -20,18 +30,21 @@ export function handleWebSubVerification(request: Request): Response {
     return new Response(hubChallenge, {
       headers: { "Content-Type": "text/plain" },
     });
+  } else {
+    console.log({
+      message: "GET request was not a valid WebSub verification",
+      url: request.url,
+    });
+    return new Response(null, { status: 404 });
   }
-
-  console.log({
-    message: "GET request was not a valid WebSub verification",
-    url: request.url,
-  });
-  return new Response(null, { status: 404 });
 }
 
-export async function processYouTubeUpload(video: YouTubeVideo) {
+export async function processYouTubeUpload(
+  video: YouTubeVideo,
+  sub: YouTubeSubscription,
+) {
   let { videoId, title, channelName, channelId, videoUrl } = video;
-  let channel = env.DISCORD_DEFAULT_YOUTUBE_CHANNEL;
+  let channel = sub.channel ?? env.DISCORD_DEFAULT_YOUTUBE_CHANNEL;
   let thumbnailUrl = `https://i3.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
   let message = {
@@ -42,10 +55,11 @@ export async function processYouTubeUpload(video: YouTubeVideo) {
         url: videoUrl,
         image: { url: thumbnailUrl },
         author: {
-          name: channelName,
-          url: `https://www.youtube.com/channel/${channelId}`,
+          name: sub.name || channelName,
+          url: sub.url || `https://www.youtube.com/channel/${channelId}`,
+          ...(sub.icon ? { icon_url: sub.icon } : {}),
         },
-        color: 16711680,
+        color: YOUTUBE_EMBED_COLOR,
       },
     ],
   };
@@ -56,7 +70,7 @@ export async function processYouTubeUpload(video: YouTubeVideo) {
   });
 
   let response = await fetch(
-    `https://discord.com/api/v10/channels/${channel}/messages`,
+    `${DISCORD_API_BASE}/channels/${channel}/messages`,
     {
       method: "POST",
       headers: {
@@ -68,7 +82,7 @@ export async function processYouTubeUpload(video: YouTubeVideo) {
   );
 
   if (!response.ok) {
-    const body = await response.text();
+    let body = await response.text();
     console.error({
       message: "Discord API request failed for YouTube upload",
       body,
@@ -78,9 +92,7 @@ export async function processYouTubeUpload(video: YouTubeVideo) {
 
 export function parseYouTubeFeed(xml: string): YouTubeVideo[] {
   let parser = new XMLParser();
-  let feed = parser.parse(xml) as {
-    feed?: { entry?: YouTubeFeedEntry | YouTubeFeedEntry[] };
-  };
+  let feed = parser.parse(xml) as YouTubeFeed;
 
   let entries = feed.feed?.entry;
   if (!entries) return [];

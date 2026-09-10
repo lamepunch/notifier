@@ -27,6 +27,8 @@
     "DISCORD_DEFAULT_CHANNEL": "1508481995917754418",
     "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1522051130199380068",
     // Public callback URL used for YouTube WebSub subscriptions.
+    // `npm start` overrides this with `--var` (`.dev.vars` cannot, because
+    // `secrets.required` only loads listed secrets).
     "SERVICE_URL": "https://notifier.grenuttag.workers.dev",
   },
   "kv_namespaces": [
@@ -36,28 +38,26 @@
     },
   ],
   "secrets": {
-    "required": ["DISCORD_TOKEN"],
+    "required": ["DISCORD_TOKEN", "ADMIN_TOKEN", "YOUTUBE_TOKEN"],
   },
   "triggers": {
     "crons": ["0 0 * * *"],
   },
-  "env": {
-    "staging": {
-      "name": "notifier-staging",
-      "vars": {
-        "DISCORD_DEFAULT_CHANNEL": "883622312333701140",
-        "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1525873566128799865",
-        "SERVICE_URL": "https://notifier-staging.grenuttag.workers.dev",
+  "queues": {
+    "producers": [
+      {
+        "binding": "YOUTUBE_SUBSCRIBE",
+        "queue": "notifier-youtube-websub",
       },
-      "kv_namespaces": [
-        {
-          "binding": "SUBSCRIPTIONS",
-          "id": "fdde8f74d97945cab3e1a468a456b63d",
-        },
-      ],
-      "secrets": {
-        "required": ["DISCORD_TOKEN"],
+    ],
+    "consumers": [
+      {
+        "queue": "notifier-youtube-websub",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 100,
+        "retry_delay": 60,
       },
-    },
+    ],
   },
 }

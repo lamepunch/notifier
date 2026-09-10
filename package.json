@@ -1,19 +1,22 @@
 {
   "name": "notifier",
-  "version": "2026.6",
+  "version": "2026.9",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "cf-typegen": "wrangler types"
+    "start": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
+    "cf-typegen": "wrangler types",
+    "admin": "tsx scripts/admin.ts"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
+    "commander": "^14.0.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.5.2",
     "wrangler": "^4.94.0"
   },
   "dependencies": {
-    "@nodable/flexible-xml-parser": "^1.10.0"
+    "@nodable/flexible-xml-parser": "^1.10.0",
+    "itty-router": "^5.0.24"
   }
 }
