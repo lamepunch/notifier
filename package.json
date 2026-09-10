@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
     "start": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
     "cf-typegen": "wrangler types",
     "admin": "tsx scripts/admin.ts"

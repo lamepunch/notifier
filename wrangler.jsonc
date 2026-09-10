@@ -27,7 +27,7 @@
     "DISCORD_DEFAULT_CHANNEL": "1508481995917754418",
     "DISCORD_DEFAULT_YOUTUBE_CHANNEL": "1522051130199380068",
     // Public callback URL used for YouTube WebSub subscriptions.
-    // `npm run dev` overrides this with `--var` (`.dev.vars` cannot, because
+    // `npm start` overrides this with `--var` (`.dev.vars` cannot, because
     // `secrets.required` only loads listed secrets).
     "SERVICE_URL": "https://notifier.grenuttag.workers.dev",
   },

@@ -5,6 +5,8 @@ type Provider = (typeof PROVIDER_NAMES)[number];
 
 const DEFAULT_URL = "http://localhost:8787";
 const REMOTE_URL = "https://notifier.grenuttag.workers.dev";
+const LOCAL_TOKEN_ENV = "NOTIFIER_ADMIN_TOKEN";
+const REMOTE_TOKEN_ENV = "NOTIFIER_REMOTE_ADMIN_TOKEN";
 const ERROR_BODY_PREVIEW_LENGTH = 200;
 
 function isProvider(value: string): value is Provider {
@@ -21,34 +23,26 @@ function providerArg(required = true) {
 }
 
 function targetFlags(cmd: Command) {
-  return cmd
-    .option("--remote", `Use ${REMOTE_URL}`)
-    .option("--url <url>", "Worker base URL", DEFAULT_URL);
-}
-
-function resolveUrl(opts: { remote?: boolean; url?: string }): string {
-  if (opts.remote) return REMOTE_URL;
-  return opts.url || DEFAULT_URL;
-}
-
-function adminToken(): string {
-  let token = process.env.NOTIFIER_ADMIN_TOKEN;
-  if (!token) {
-    throw new Error(
-      "NOTIFIER_ADMIN_TOKEN is not set (export it or add it to the environment)",
-    );
-  }
-  return token;
+  return cmd.option("--remote", `Use ${REMOTE_URL}`);
 }
 
 async function adminFetch(
-  baseUrl: string,
+  remote: boolean | undefined,
   path: string,
   init: { method: string; body?: unknown } = { method: "GET" },
 ): Promise<unknown> {
-  let url = new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
+  let baseUrl = remote ? REMOTE_URL : DEFAULT_URL;
+  let tokenName = remote ? REMOTE_TOKEN_ENV : LOCAL_TOKEN_ENV;
+  let token = process.env[tokenName];
+  if (!token) {
+    throw new Error(
+      `${tokenName} is not set (export it or add it to the environment)`,
+    );
+  }
+
+  let url = new URL(path, baseUrl);
   let headers: Record<string, string> = {
-    Authorization: `Bearer ${adminToken()}`,
+    Authorization: `Bearer ${token}`,
   };
   let body: string | undefined;
   if (init.body !== undefined) {
@@ -98,13 +92,13 @@ targetFlags(
 ).action(
   async (
     provider: string | undefined,
-    opts: { remote?: boolean; url?: string },
+    opts: { remote?: boolean },
   ) => {
     let path = "/admin/subscriptions";
     if (provider && isProvider(provider)) {
       path += `?provider=${provider}`;
     }
-    printJson(await adminFetch(resolveUrl(opts), path));
+    printJson(await adminFetch(opts.remote, path));
   },
 );
 
@@ -119,12 +113,12 @@ targetFlags(
   async (
     provider: Provider,
     alias: string,
-    opts: { channel?: string; remote?: boolean; url?: string },
+    opts: { channel?: string; remote?: boolean },
   ) => {
     let body: Record<string, string> = { provider, alias };
     if (opts.channel) body.channel = opts.channel;
     printJson(
-      await adminFetch(resolveUrl(opts), "/admin/subscriptions", {
+      await adminFetch(opts.remote, "/admin/subscriptions", {
         method: "POST",
         body,
       }),
@@ -142,10 +136,10 @@ targetFlags(
   async (
     provider: Provider,
     alias: string,
-    opts: { remote?: boolean; url?: string },
+    opts: { remote?: boolean },
   ) => {
     printJson(
-      await adminFetch(resolveUrl(opts), "/admin/subscriptions/activate", {
+      await adminFetch(opts.remote, "/admin/subscriptions/activate", {
         method: "POST",
         body: { provider, alias },
       }),
@@ -163,12 +157,36 @@ targetFlags(
   async (
     provider: Provider,
     alias: string,
-    opts: { remote?: boolean; url?: string },
+    opts: { remote?: boolean },
   ) => {
     printJson(
-      await adminFetch(resolveUrl(opts), "/admin/subscriptions/deactivate", {
+      await adminFetch(opts.remote, "/admin/subscriptions/deactivate", {
         method: "POST",
         body: { provider, alias },
+      }),
+    );
+  },
+);
+
+targetFlags(
+  program
+    .command("migrate")
+    .description(
+      "Import subscriptions / youtube_subscriptions blobs into prefix keys",
+    )
+    .addArgument(providerArg(false)),
+).action(
+  async (
+    provider: string | undefined,
+    opts: { remote?: boolean },
+  ) => {
+    let path = "/admin/subscriptions/migrate";
+    if (provider && isProvider(provider)) {
+      path += `?provider=${provider}`;
+    }
+    printJson(
+      await adminFetch(opts.remote, path, {
+        method: "POST",
       }),
     );
   },
@@ -179,9 +197,8 @@ program
   .description("Send a test event to the local worker")
   .addArgument(providerArg())
   .argument("<alias>", "Kick slug or YouTube handle")
-  .option("--url <url>", "Worker URL", DEFAULT_URL)
-  .action(async (provider: Provider, alias: string, opts: { url: string }) => {
-    console.log(`[stub] postTestEvent`, { provider, alias, url: opts.url });
+  .action(async (provider: Provider, alias: string) => {
+    console.log(`[stub] postTestEvent`, { provider, alias });
   });
 
 void program.parseAsync().catch((error) => {

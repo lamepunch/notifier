@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 
 import type {
   KickChannelResponse,
+  KickLookup,
   LookupResult,
   Provider,
   Subscription,
@@ -232,10 +233,13 @@ async function upsertSubscription(
       active: true,
     };
     if (channel) record.channel = channel;
+    else if (found.record.channel) record.channel = found.record.channel;
     else if (existing?.channel) record.channel = existing.channel;
 
-    if (existing?.links) record.links = existing.links;
-    if (existing?.mentions) record.mentions = existing.mentions;
+    if (found.record.links) record.links = found.record.links;
+    else if (existing?.links) record.links = existing.links;
+    if (found.record.mentions) record.mentions = found.record.mentions;
+    else if (existing?.mentions) record.mentions = existing.mentions;
 
     await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
     return { [key]: record };
@@ -300,6 +304,145 @@ async function addSubscription(
     };
   }
   return written;
+}
+
+interface KickBlobRecord {
+  id: number;
+  slug?: string;
+  channel?: string;
+  links?: Record<string, string>;
+  mentions?: string[];
+}
+
+interface MigrateResult {
+  imported: unknown[];
+  errors: { id: string; error: string }[];
+}
+
+/**
+ * Copies the old `subscriptions` blob (Kick records) into `kick:{user_id}` keys.
+ * Looks up slug when the Kick API accepts the blob slug or numeric id; always
+ * copies `channel` / `links` / `mentions`. One failed row is recorded and the rest
+ * still run. The blob is left in place.
+ */
+async function migrateKickSubscriptions(): Promise<MigrateResult> {
+  let blob = await env.SUBSCRIPTIONS.get("subscriptions", { type: "json" });
+  if (
+    !Array.isArray(blob) ||
+    blob.some(
+      (item) =>
+        !item ||
+        typeof item !== "object" ||
+        Array.isArray(item) ||
+        typeof (item as { id?: unknown }).id !== "number",
+    )
+  ) {
+    throw new StatusError(
+      400,
+      "subscriptions must be a JSON array of Kick records",
+    );
+  }
+
+  let imported: unknown[] = [];
+  let errors: { id: string; error: string }[] = [];
+
+  for (let item of blob as KickBlobRecord[]) {
+    try {
+      let alias =
+        typeof item.slug === "string" && item.slug.trim()
+          ? item.slug.trim()
+          : String(item.id);
+      let found: KickLookup;
+      try {
+        found = { provider: "kick", record: await lookupKick(alias) };
+      } catch (error) {
+        let message = error instanceof Error ? error.message : String(error);
+        console.error({
+          message: "Kick migrate lookup failed, writing blob record",
+          id: item.id,
+          error: message,
+        });
+        found = {
+          provider: "kick",
+          record: {
+            id: item.id,
+            slug: alias,
+            active: true,
+          },
+        };
+      }
+      if (item.channel) found.record.channel = item.channel;
+      if (item.links) found.record.links = item.links;
+      if (item.mentions) found.record.mentions = item.mentions;
+      imported.push(await upsertSubscription(found, item.channel));
+    } catch (error) {
+      let message = error instanceof Error ? error.message : String(error);
+      console.error({
+        message: "Kick migrate failed for channel",
+        id: item.id,
+        error: message,
+      });
+      errors.push({ id: String(item.id), error: message });
+    }
+  }
+
+  return { imported, errors };
+}
+
+/**
+ * Copies the old `youtube_subscriptions` blob (channel ID array) into prefix keys.
+ * Each ID goes through `add` (Data API lookup, KV upsert, WebSub enqueue).
+ * One failed channel is recorded and the rest still run. The blob is left in place.
+ */
+async function migrateYouTubeSubscriptions(): Promise<MigrateResult> {
+  let blob = await env.SUBSCRIPTIONS.get("youtube_subscriptions", {
+    type: "json",
+  });
+  if (!Array.isArray(blob) || blob.some((id) => typeof id !== "string")) {
+    throw new StatusError(
+      400,
+      "youtube_subscriptions must be a JSON array of channel IDs",
+    );
+  }
+
+  let imported: unknown[] = [];
+  let errors: { id: string; error: string }[] = [];
+
+  for (let id of blob as string[]) {
+    try {
+      imported.push(await addSubscription("youtube", id));
+    } catch (error) {
+      let message = error instanceof Error ? error.message : String(error);
+      console.error({
+        message: "YouTube migrate failed for channel",
+        id,
+        error: message,
+      });
+      errors.push({ id, error: message });
+    }
+  }
+
+  return { imported, errors };
+}
+
+/**
+ * Imports old blob keys into prefix keys. Pass `provider` to import one
+ * platform; omit it to import both. Both blobs are expected to exist.
+ */
+async function migrateSubscriptions(
+  provider?: Provider,
+): Promise<Record<string, MigrateResult>> {
+  let names = provider ? [provider] : PROVIDER_NAMES;
+  let out: Record<string, MigrateResult> = {};
+
+  for (let name of names) {
+    out[name] =
+      name === "kick"
+        ? await migrateKickSubscriptions()
+        : await migrateYouTubeSubscriptions();
+  }
+
+  return out;
 }
 
 /**
@@ -442,6 +585,21 @@ admin.post("/subscriptions/activate", async (request) => {
 admin.post("/subscriptions/deactivate", async (request) => {
   let { provider, alias } = requireProviderAlias(await readJsonBody(request));
   return json(await setActive(provider, alias, false));
+});
+
+admin.post("/subscriptions/migrate", async (request) => {
+  let providerParam = request.query.provider;
+  let provider: Provider | undefined;
+  if (typeof providerParam === "string") {
+    if (!isProvider(providerParam)) {
+      throw new StatusError(
+        400,
+        `provider must be one of: ${PROVIDER_NAMES.join(", ")}`,
+      );
+    }
+    provider = providerParam;
+  }
+  return json(await migrateSubscriptions(provider));
 });
 
 export default admin;

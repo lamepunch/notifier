@@ -15,10 +15,10 @@ Local YouTube WebSub needs a public callback. Funnel `wrangler dev` so the hub c
 
 ```sh
 tailscale funnel --bg 8787
-npm run dev
+npm start
 ```
 
-`npm run dev` passes `--var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net`, which overrides the workers.dev URL in `wrangler.jsonc`. Deploy still uses the production value.
+`npm start` passes `--var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net`, which overrides the workers.dev URL in `wrangler.jsonc`. Deploy still uses the production value.
 
 Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
 
@@ -41,13 +41,16 @@ npx wrangler queues create notifier-youtube-websub
 ## Admin CLI
 
 Subscription admin logic runs on the Worker under `/admin/*`. The CLI is a
-thin HTTP client that sends `Authorization: Bearer $ADMIN_TOKEN`.
+thin HTTP client that sends `Authorization: Bearer` with a token from the
+environment. Local calls use `NOTIFIER_ADMIN_TOKEN`; `--remote` uses
+`NOTIFIER_REMOTE_ADMIN_TOKEN`. The Worker secret is still `ADMIN_TOKEN`
+(`.dev.vars` locally, `wrangler secret` in production).
 
-Locally, run `npm run dev` so the Worker (and local KV/queue) are up. Export
-`ADMIN_TOKEN` to match `.dev.vars` (the Worker loads the secret from there).
+Locally, run `npm start` so the Worker (and local KV/queue) are up.
 
 ```sh
-export ADMIN_TOKEN=...   # same value as in .dev.vars
+export NOTIFIER_ADMIN_TOKEN=...          # same value as ADMIN_TOKEN in .dev.vars
+export NOTIFIER_REMOTE_ADMIN_TOKEN=...   # same value as the production secret
 npm run admin -- --help
 npm run admin -- list
 npm run admin -- list youtube
@@ -55,12 +58,20 @@ npm run admin -- add kick <alias> [--channel <discordId>]
 npm run admin -- add youtube <alias>
 npm run admin -- activate youtube <alias>
 npm run admin -- deactivate kick <alias>
+npm run admin -- migrate              # old blobs → prefix keys
+npm run admin -- migrate kick
+npm run admin -- migrate youtube
 npm run admin -- test kick <alias>   # stub
 ```
 
 Defaults to `http://localhost:8787`. Use `--remote` for
-`https://notifier.grenuttag.workers.dev`, or `--url <url>` for another base.
+`https://notifier.grenuttag.workers.dev`.
 A YouTube `add` enqueues a WebSub subscribe job on the Worker.
+`migrate` reads the old `subscriptions` Kick-record blob and
+`youtube_subscriptions` channel-ID blob and writes prefix keys. Pass a
+provider to import one platform. Kick copies `channel` / `links` /
+`mentions` from the blob; YouTube runs `add` (lookup + WebSub) for each ID.
+Use `--remote` after deploying so it hits production KV.
 
 If production is behind Cloudflare Access, the CLI must be allowed through
 (path bypass or Access service token). Worker auth is Bearer only.
