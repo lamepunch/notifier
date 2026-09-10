@@ -1,127 +1,135 @@
+import { AutoRouter, type IRequest } from "itty-router";
+
 import type {
   LivestreamStatusUpdated,
   YouTubeSubscribeJob,
   YouTubeSubscription,
 } from "./types.d.ts";
 
-import { processWebhook } from "./events/kick";
+import { youtubeKey, youtubeVideoSentKey } from "./kv";
 import { queue, scheduled } from "./scheduled";
 import {
   handleWebSubVerification,
   parseYouTubeFeed,
   processYouTubeUpload,
 } from "./events/youtube";
-import { youtubeKey } from "./kv";
+
+import admin from "./admin";
+import processWebhook from "./events/kick";
 
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1000;
+const VIDEO_SENT_TTL_IN_S = 7 * 24 * 60 * 60;
 
-export default {
-  async fetch(request, env, ctx): Promise<Response> {
-    // Handle WebSub subscription verification
-    if (request.method === "GET") {
-      return handleWebSubVerification(request);
-    }
+const router = AutoRouter<IRequest, [Env, ExecutionContext]>({
+  missing: () => new Response(null, { status: 404 }),
+});
 
-    // Deny everything else besides POST requests
-    if (request.method !== "POST") {
-      return new Response(null, { status: 404 });
-    }
+router
+  .all("/admin/*", admin.fetch)
+  .get("*", (request) => handleWebSubVerification(request))
+  .post("*", handleWebhookPost);
 
-    let payload = await request.text();
-    let eventType = request.headers.get("Kick-Event-Type");
-    let contentType = request.headers.get("Content-Type") || "";
+async function handleWebhookPost(
+  request: IRequest,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  let payload = await request.text();
+  let eventType = request.headers.get("Kick-Event-Type");
+  let contentType = request.headers.get("Content-Type") || "";
 
-    // Verify webhook signature
-    // TODO!
+  // @TODO: verify webhook signature
 
-    if (eventType === "livestream.status.updated") {
-      let data = JSON.parse(payload) as LivestreamStatusUpdated;
+  let isKickLivestream = eventType === "livestream.status.updated";
+  let isYouTubeFeed =
+    contentType.includes("xml") || contentType.includes("atom");
 
-      // We only care when the stream is actually going live (not when it's ending).
-      if (data.is_live) {
-        try {
-          ctx.waitUntil(processWebhook(data));
-        } catch (error) {
-          // Encountered an error, log it and return a success response
-          // since we don't want Kick to stop sending us events.
-          console.error(error);
-        }
-      }
+  if (isKickLivestream) {
+    let data = JSON.parse(payload) as LivestreamStatusUpdated;
+    let isGoingLive = data.is_live;
 
-      return new Response();
-    }
-
-    // YouTube PubSubHubbub sends Atom feed notifications
-    if (contentType.includes("xml") || contentType.includes("atom")) {
-      console.log({
-        message: "YouTube notification received",
-        contentType,
-        payload,
-      });
-
-      let videos = parseYouTubeFeed(payload);
-
-      console.log({
-        message: "YouTube notification parsed",
-        videoCount: videos.length,
-      });
-
-      for (let video of videos) {
-        let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-          youtubeKey(video.channelId),
-          { type: "json" },
-        );
-
-        let isSubscribed = !!sub?.active;
-
-        // Pings also fire for edits of old videos and are retried by the
-        // hub, so "new upload" means: published recently AND not already
-        // sent (tracked in KV).
-        let isRecent =
-          Date.now() - new Date(video.published).getTime() < ONE_DAY_IN_MS;
-
-        let sentKey = `youtube_video_sent:${video.videoId}`;
-
-        let alreadySent =
-          isSubscribed && isRecent
-            ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
-            : false;
-
-        // Only accept videos where we can find a matching subscription
-        // and we haven't sent a notification yet.
-        let accepted = isSubscribed && isRecent && !alreadySent;
-
-        console.log({
-          message: accepted
-            ? "Video accepted, sending notification"
-            : "Video skipped",
-          videoId: video.videoId,
-          channelId: video.channelId,
-          published: video.published,
-          updated: video.updated,
-          isSubscribed,
-          isRecent,
-          alreadySent,
+    if (isGoingLive) {
+      try {
+        ctx.waitUntil(processWebhook(data));
+      } catch (error) {
+        console.error({
+          message: "Kick webhook processing failed",
+          error: error instanceof Error ? error.message : String(error),
         });
-
-        if (accepted && sub) {
-          // ponytail: KV is eventually consistent, so pings landing in
-          // different colos within ~60s could double-send; a Durable
-          // Object would make this exactly-once if that ever matters.
-          await env.SUBSCRIPTIONS.put(sentKey, video.published, {
-            expirationTtl: 7 * 24 * 60 * 60,
-          });
-          try {
-            ctx.waitUntil(processYouTubeUpload(video, sub));
-          } catch (error) {
-            console.error(error);
-          }
-        }
       }
-
-      return new Response();
     }
 
+    return new Response();
+  } else if (isYouTubeFeed) {
+    console.log({
+      message: "YouTube notification received",
+      contentType,
+      payload,
+    });
+
+    let videos = parseYouTubeFeed(payload);
+
+    console.log({
+      message: "YouTube notification parsed",
+      videoCount: videos.length,
+    });
+
+    for (let video of videos) {
+      let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
+        youtubeKey(video.channelId),
+        { type: "json" },
+      );
+
+      let isSubscribed: boolean = !!sub?.active;
+
+      // Pings also fire for edits of old videos and are retried by the
+      // hub, so "new upload" means: published recently AND not already
+      // sent (tracked in KV).
+      let isRecent: boolean =
+        Date.now() - new Date(video.published).getTime() < ONE_DAY_IN_MS;
+
+      let sentKey = youtubeVideoSentKey(video.videoId);
+
+      let hasAlreadySent: boolean =
+        isSubscribed && isRecent
+          ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
+          : false;
+
+      let isAccepted: boolean = isSubscribed && isRecent && !hasAlreadySent;
+
+      console.log({
+        message: isAccepted
+          ? "Video accepted, sending notification"
+          : "Video skipped",
+        videoId: video.videoId,
+        channelId: video.channelId,
+        published: video.published,
+        updated: video.updated,
+        isSubscribed,
+        isRecent,
+        hasAlreadySent,
+      });
+
+      if (isAccepted && sub) {
+        // ponytail: KV is eventually consistent, so pings landing in
+        // different colos within ~60s could double-send; a Durable
+        // Object would make this exactly-once if that ever matters.
+        await env.SUBSCRIPTIONS.put(sentKey, video.published, {
+          expirationTtl: VIDEO_SENT_TTL_IN_S,
+        });
+        try {
+          ctx.waitUntil(processYouTubeUpload(video, sub));
+        } catch (error) {
+          console.error({
+            message: "YouTube upload processing failed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
+    return new Response();
+  } else {
     console.log({
       message: "POST request matched no handler",
       eventType,
@@ -129,8 +137,11 @@ export default {
       payload,
     });
     return new Response();
-  },
+  }
+}
 
+export default {
+  ...router,
   scheduled,
   queue,
 } satisfies ExportedHandler<Env, YouTubeSubscribeJob>;

@@ -1,22 +1,29 @@
+import { env } from "cloudflare:workers";
+
 import type { YouTubeSubscribeJob, YouTubeSubscription } from "./types.d.ts";
 
-import { env } from "cloudflare:workers";
+import { KV_GET_BATCH_LIMIT } from "./constants";
 import { YOUTUBE_PREFIX, youtubeKey } from "./kv";
 
 const QUEUE_MAX_RETRIES = 100;
-const SEND_BATCH_LIMIT = 100;
+const QUEUE_SEND_BATCH_LIMIT = 100;
+const WEBSUB_LEASE_IN_S = 864_000;
+const WEBSUB_LEASE_IN_MS = WEBSUB_LEASE_IN_S * 1_000;
+const RETRY_DELAY_BASE_IN_S = 30;
+const RETRY_DELAY_CAP_IN_S = 3_600;
+const MAX_RETRY_DELAY_IN_S = 86_400;
+const YOUTUBE_WEBSUB_HUB = "https://pubsubhubbub.appspot.com/subscribe";
 
 export async function scheduled(): Promise<void> {
   console.log({ message: "YouTube WebSub cron started" });
 
-  if (!env.SERVICE_URL) {
+  if (env.SERVICE_URL) {
+    await enqueueYouTubeSubscriptions();
+  } else {
     console.warn(
       "SERVICE_URL is not set, skipping YouTube WebSub subscriptions",
     );
-    return;
   }
-
-  await enqueueYouTubeSubscriptions();
 }
 
 async function listYouTubeKeys(): Promise<string[]> {
@@ -42,8 +49,8 @@ async function loadYouTubeSubscriptions(
   let subs: YouTubeSubscription[] = [];
 
   // ponytail: KV bulk get is capped at 100 keys per call
-  for (let i = 0; i < keys.length; i += 100) {
-    let batch = keys.slice(i, i + 100);
+  for (let i = 0; i < keys.length; i += KV_GET_BATCH_LIMIT) {
+    let batch = keys.slice(i, i + KV_GET_BATCH_LIMIT);
     let values = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(batch, {
       type: "json",
     });
@@ -60,30 +67,49 @@ async function loadYouTubeSubscriptions(
   return subs;
 }
 
+function needsWebSubRefresh(sub: YouTubeSubscription): boolean {
+  let hasTimestamp = !!sub.lastSubscribedAt;
+  let at = Date.parse(sub.lastSubscribedAt ?? "");
+  let isValidTimestamp = Number.isFinite(at);
+  let isLeaseExpired = Date.now() - at >= WEBSUB_LEASE_IN_MS;
+  return !hasTimestamp || !isValidTimestamp || isLeaseExpired;
+}
+
 async function enqueueYouTubeSubscriptions() {
   let keys = await listYouTubeKeys();
-  let subs = (await loadYouTubeSubscriptions(keys)).filter((sub) => sub.active);
+  let active = (await loadYouTubeSubscriptions(keys)).filter(
+    (sub) => sub.active,
+  );
+  let subs = active.filter(needsWebSubRefresh);
+  let skipped = active.length - subs.length;
 
   if (subs.length === 0) {
-    console.log("No active YouTube subscriptions configured");
-    return;
-  }
+    console.log({
+      message: "No YouTube WebSub refreshes due",
+      active: active.length,
+      skipped,
+    });
+  } else {
+    for (let i = 0; i < subs.length; i += QUEUE_SEND_BATCH_LIMIT) {
+      let chunk = subs.slice(i, i + QUEUE_SEND_BATCH_LIMIT);
+      await env.YOUTUBE_SUBSCRIBE.sendBatch(
+        chunk.map((sub) => ({ body: { channelId: sub.id } })),
+      );
+    }
 
-  for (let i = 0; i < subs.length; i += SEND_BATCH_LIMIT) {
-    let chunk = subs.slice(i, i + SEND_BATCH_LIMIT);
-    await env.YOUTUBE_SUBSCRIBE.sendBatch(
-      chunk.map((sub) => ({ body: { channelId: sub.id } })),
-    );
+    console.log({
+      message: "YouTube WebSub jobs enqueued",
+      count: subs.length,
+      skipped,
+    });
   }
-
-  console.log({
-    message: "YouTube WebSub jobs enqueued",
-    count: subs.length,
-  });
 }
 
 function retryDelaySeconds(attempts: number): number {
-  let delaySeconds = Math.min(3600, 30 * 2 ** (attempts - 1));
+  let delaySeconds = Math.min(
+    RETRY_DELAY_CAP_IN_S,
+    RETRY_DELAY_BASE_IN_S * 2 ** (attempts - 1),
+  );
   console.log({
     message: "Using exponential retry delay",
     attempts,
@@ -91,9 +117,6 @@ function retryDelaySeconds(attempts: number): number {
   });
   return delaySeconds;
 }
-
-// Queues delaySeconds is a positive integer, capped at 24h on send().
-const MAX_RETRY_DELAY = 86400;
 
 function retryAfterSeconds(header: string | null): number | undefined {
   if (!header) {
@@ -107,7 +130,8 @@ function retryAfterSeconds(header: string | null): number | undefined {
     return;
   }
 
-  let delaySeconds = Math.min(MAX_RETRY_DELAY, Math.max(1, delay));
+  // Queues delaySeconds is a positive integer, capped at 24h on send().
+  let delaySeconds = Math.min(MAX_RETRY_DELAY_IN_S, Math.max(1, delay));
   console.log({
     message: "Parsed Retry-After",
     header,
@@ -159,6 +183,8 @@ export async function queue(
       }
 
       await subscribeToYouTubeChannel(channelId, env.SERVICE_URL);
+      sub.lastSubscribedAt = new Date().toISOString();
+      await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
       message.ack();
     } catch (error) {
       let delaySeconds = delaySecondsFromError(error);
@@ -225,7 +251,7 @@ async function subscribeToYouTubeChannel(
     `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${channelId}`,
   );
   params.set("hub.callback", callbackUrl);
-  params.set("hub.lease_seconds", "432000");
+  params.set("hub.lease_seconds", String(WEBSUB_LEASE_IN_S));
   params.set("hub.verify", "async");
 
   console.log({
@@ -234,7 +260,7 @@ async function subscribeToYouTubeChannel(
     callbackUrl,
   });
 
-  let response = await fetch("https://pubsubhubbub.appspot.com/subscribe", {
+  let response = await fetch(YOUTUBE_WEBSUB_HUB, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),

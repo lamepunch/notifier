@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
+    "dev": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
+    "start": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
     "cf-typegen": "wrangler types",
     "admin": "tsx scripts/admin.ts"
   },
@@ -17,6 +17,7 @@
     "wrangler": "^4.94.0"
   },
   "dependencies": {
-    "@nodable/flexible-xml-parser": "^1.10.0"
+    "@nodable/flexible-xml-parser": "^1.10.0",
+    "itty-router": "^5.0.24"
   }
 }
