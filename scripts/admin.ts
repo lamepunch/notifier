@@ -1,3 +1,5 @@
+#!/usr/bin/env tsx
+
 import { Argument, Command } from "commander";
 
 const PROVIDER_NAMES = ["kick", "youtube"] as const;
@@ -163,30 +165,6 @@ targetFlags(
       await adminFetch(opts.remote, "/admin/subscriptions/deactivate", {
         method: "POST",
         body: { provider, alias },
-      }),
-    );
-  },
-);
-
-targetFlags(
-  program
-    .command("migrate")
-    .description(
-      "Import subscriptions / youtube_subscriptions blobs into prefix keys",
-    )
-    .addArgument(providerArg(false)),
-).action(
-  async (
-    provider: string | undefined,
-    opts: { remote?: boolean },
-  ) => {
-    let path = "/admin/subscriptions/migrate";
-    if (provider && isProvider(provider)) {
-      path += `?provider=${provider}`;
-    }
-    printJson(
-      await adminFetch(opts.remote, path, {
-        method: "POST",
       }),
     );
   },

@@ -15,13 +15,13 @@ const MAX_RETRY_DELAY_IN_S = 86_400;
 const YOUTUBE_WEBSUB_HUB = "https://pubsubhubbub.appspot.com/subscribe";
 
 export async function scheduled(): Promise<void> {
-  console.log({ message: "YouTube WebSub cron started" });
+  console.log({ message: "Starting daily YouTube WebSub refresh cron" });
 
   if (env.SERVICE_URL) {
     await enqueueYouTubeSubscriptions();
   } else {
     console.warn(
-      "SERVICE_URL is not set, skipping YouTube WebSub subscriptions",
+      "SERVICE_URL is not set; skipping enqueue of WebSub hub jobs",
     );
   }
 }
@@ -39,7 +39,7 @@ async function listYouTubeKeys(): Promise<string[]> {
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
 
-  console.log({ message: "Listed YouTube KV keys", count: keys.length });
+  console.log({ message: "Listed YouTube subscription keys from KV", count: keys.length });
   return keys;
 }
 
@@ -60,7 +60,7 @@ async function loadYouTubeSubscriptions(
   }
 
   console.log({
-    message: "Loaded YouTube subscriptions",
+    message: "Loaded YouTube subscription records from KV",
     keys: keys.length,
     loaded: subs.length,
   });
@@ -85,7 +85,7 @@ async function enqueueYouTubeSubscriptions() {
 
   if (subs.length === 0) {
     console.log({
-      message: "No YouTube WebSub refreshes due",
+      message: "No YouTube channels need a WebSub hub refresh",
       active: active.length,
       skipped,
     });
@@ -98,7 +98,7 @@ async function enqueueYouTubeSubscriptions() {
     }
 
     console.log({
-      message: "YouTube WebSub jobs enqueued",
+      message: "Enqueued WebSub hub subscribe jobs",
       count: subs.length,
       skipped,
     });
@@ -111,7 +111,7 @@ function retryDelaySeconds(attempts: number): number {
     RETRY_DELAY_BASE_IN_S * 2 ** (attempts - 1),
   );
   console.log({
-    message: "Using exponential retry delay",
+    message: "Computed exponential retry delay",
     attempts,
     delaySeconds,
   });
@@ -120,7 +120,7 @@ function retryDelaySeconds(attempts: number): number {
 
 function retryAfterSeconds(header: string | null): number | undefined {
   if (!header) {
-    console.log({ message: "No Retry-After header" });
+    console.log({ message: "WebSub hub response has no Retry-After header" });
     return;
   }
 
@@ -133,7 +133,7 @@ function retryAfterSeconds(header: string | null): number | undefined {
   // Queues delaySeconds is a positive integer, capped at 24h on send().
   let delaySeconds = Math.min(MAX_RETRY_DELAY_IN_S, Math.max(1, delay));
   console.log({
-    message: "Parsed Retry-After",
+    message: "Using Retry-After delay from WebSub hub",
     header,
     delay,
     delaySeconds,
@@ -158,7 +158,7 @@ export async function queue(
   for (let message of batch.messages) {
     let { channelId } = message.body;
     console.log({
-      message: "Processing YouTube WebSub job",
+      message: "Processing queued WebSub hub subscribe job",
       channelId,
       attempts: message.attempts,
     });
@@ -190,7 +190,7 @@ export async function queue(
       let delaySeconds = delaySecondsFromError(error);
 
       console.error({
-        message: "YouTube WebSub subscription failed",
+        message: "WebSub hub subscribe job failed",
         channelId,
         attempts: message.attempts,
         delaySeconds,
@@ -203,7 +203,7 @@ export async function queue(
         let requeueDelay =
           delaySeconds ?? retryDelaySeconds(message.attempts);
         console.warn({
-          message: "WebSub retries exhausted, re-enqueueing",
+          message: "Queue retries exhausted; sending a new WebSub hub job",
           channelId,
           attempts: message.attempts,
           delaySeconds: requeueDelay,
@@ -220,7 +220,7 @@ export async function queue(
       // throwing would use the consumer's fixed retry_delay instead.
       if (delaySeconds !== undefined) {
         console.log({
-          message: "Retrying WebSub subscription after Retry-After",
+          message: "Retrying WebSub hub job using Retry-After delay",
           channelId,
           attempts: message.attempts,
           delaySeconds,
@@ -228,7 +228,7 @@ export async function queue(
         message.retry({ delaySeconds });
       } else {
         console.log({
-          message: "Retrying WebSub subscription with default delay",
+          message: "Retrying WebSub hub job with the queue default delay",
           channelId,
           attempts: message.attempts,
         });
@@ -255,7 +255,7 @@ async function subscribeToYouTubeChannel(
   params.set("hub.verify", "async");
 
   console.log({
-    message: "Posting YouTube WebSub subscribe",
+    message: "Sending subscription request to WebSub hub",
     channelId,
     callbackUrl,
   });
@@ -271,7 +271,7 @@ async function subscribeToYouTubeChannel(
     let retryAfter = response.headers.get("Retry-After");
     let delaySeconds = retryAfterSeconds(retryAfter);
     console.error({
-      message: "YouTube WebSub subscription failed",
+      message: "WebSub hub rejected subscription request",
       status: response.status,
       body,
       channelId,
@@ -285,5 +285,5 @@ async function subscribeToYouTubeChannel(
     throw error;
   }
 
-  console.log({ message: "YouTube WebSub subscription requested", channelId });
+  console.log({ message: "WebSub hub accepted subscription request", channelId });
 }

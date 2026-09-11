@@ -2,6 +2,9 @@
   "name": "notifier",
   "version": "2026.9",
   "private": true,
+  "bin": {
+    "admin": "scripts/admin.ts"
+  },
   "scripts": {
     "deploy": "wrangler deploy",
     "start": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
