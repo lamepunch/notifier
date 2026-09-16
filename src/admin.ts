@@ -13,6 +13,7 @@ import type {
 } from "./types.d.ts";
 
 import { KV_GET_BATCH_LIMIT } from "./constants";
+import { setPollingFlags } from "./events/youtube";
 import { KICK_PREFIX, YOUTUBE_PREFIX, kickKey, youtubeKey } from "./kv";
 import { enqueueYouTubeSubscriptions } from "./scheduled";
 
@@ -29,6 +30,11 @@ const ERROR_BODY_PREVIEW_LENGTH = 200;
 const addSubscriptionBody = v.object({
   alias: v.pipe(v.string(), v.trim(), v.minLength(1)),
   channel: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+});
+
+const pollSubscriptionBody = v.object({
+  all: v.optional(v.boolean()),
+  members: v.optional(v.boolean()),
 });
 
 /** True when `value` is `"kick"` or `"youtube"`. */
@@ -221,8 +227,8 @@ async function lookupByAlias(
 
 /**
  * Writes a subscription to KV (creates or overwrites).
- * Keeps an existing Discord channel override, Kick links/mentions, and YouTube
- * WebSub lease unless the request supplies a new channel.
+ * Keeps an existing Discord channel override, Kick links/mentions, YouTube
+ * WebSub lease, and polling flags unless the request supplies a new channel.
  */
 async function upsertSubscription(
   found: LookupResult,
@@ -269,6 +275,9 @@ async function upsertSubscription(
   }
   if (existing?.lastVerifiedAt) {
     record.lastVerifiedAt = existing.lastVerifiedAt;
+  }
+  if (existing?.polling) {
+    record.polling = existing.polling;
   }
 
   await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
@@ -358,6 +367,47 @@ async function setActive(
   return { [key]: record };
 }
 
+/**
+ * Merges `all` / `members` into the stored YouTube `polling` object.
+ * Omits `polling` when both flags are false. Setting `all` true enqueues a poll job.
+ */
+async function setYouTubePolling(
+  id: string,
+  patch: { all?: boolean; members?: boolean },
+): Promise<Record<string, YouTubeSubscription>> {
+  let isYouTubeChannelId = YOUTUBE_ID_RE.test(id);
+  if (!isYouTubeChannelId) {
+    throw new StatusError(400, "id must be a YouTube channel id");
+  }
+
+  let hasAll = patch.all !== undefined;
+  let hasMembers = patch.members !== undefined;
+  if (!hasAll && !hasMembers) {
+    throw new StatusError(400, "all or members is required");
+  }
+
+  let key = youtubeKey(id);
+  let existing = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(key, {
+    type: "json",
+  });
+  if (!existing) {
+    throw new StatusError(404, `No YouTube subscription for ${id}`);
+  }
+
+  let all = patch.all ?? existing.polling?.all ?? false;
+  let members = patch.members ?? existing.polling?.members ?? false;
+  let record: YouTubeSubscription = { ...existing };
+  setPollingFlags(record, all, members);
+  await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
+
+  let shouldEnqueue = record.polling?.all === true;
+  if (shouldEnqueue) {
+    await env.YOUTUBE_POLL.send({ channelId: id });
+  }
+
+  return { [key]: record };
+}
+
 /** Parses JSON with `schema`, or 400 if the body is missing/invalid. */
 async function parseJsonBody<TSchema extends v.GenericSchema>(
   request: Request,
@@ -436,6 +486,11 @@ admin.post("/subscriptions/youtube/resync", async () => {
     message: "YouTube WebSub jobs enqueued",
     ...result,
   });
+});
+
+admin.post("/subscriptions/youtube/:id/poll", async (request) => {
+  let { all, members } = await parseJsonBody(request, pollSubscriptionBody);
+  return json(await setYouTubePolling(request.params.id, { all, members }));
 });
 
 admin.post("/subscriptions/:provider", async (request) => {

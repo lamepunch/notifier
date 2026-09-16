@@ -23,6 +23,11 @@ export interface Subscription {
   mentions?: string[];
 }
 
+export interface YouTubePolling {
+  all: boolean;
+  members: boolean;
+}
+
 export interface YouTubeSubscription {
   id: string;
   name: string;
@@ -32,6 +37,7 @@ export interface YouTubeSubscription {
   channel?: string;
   lastSubscribedAt?: string;
   lastVerifiedAt?: string;
+  polling?: YouTubePolling;
 }
 
 export interface YouTubeVideo {
@@ -59,6 +65,28 @@ export interface YouTubeFeed {
 
 export interface YouTubeSubscribeJob {
   channelId: string;
+}
+
+export interface YouTubePollJob {
+  channelId: string;
+}
+
+export interface YouTubePlaylistItem {
+  snippet?: {
+    title?: string;
+    channelId?: string;
+    channelTitle?: string;
+    publishedAt?: string;
+    resourceId?: { videoId?: string };
+  };
+  contentDetails?: {
+    videoId?: string;
+    videoPublishedAt?: string;
+  };
+}
+
+export interface YouTubePlaylistItemsResponse {
+  items?: YouTubePlaylistItem[];
 }
 
 export type Provider = "kick" | "youtube";
