@@ -11,7 +11,7 @@ See `AGENTS.md` for Cloudflare Workers documentation pointers and the rule that 
 | `npm start` | Local dev server (wrangler dev) on http://localhost:8787 |
 | `npm run deploy` | Deploy to Cloudflare |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` — **run after any change to bindings/vars/secrets in `wrangler.jsonc`** |
-| `npx admin <cmd>` | Thin HTTP client for Worker `/admin` routes. Needs `NOTIFIER_ADMIN_TOKEN` locally (or `NOTIFIER_REMOTE_ADMIN_TOKEN` with `--remote`) and a running Worker (`wrangler dev` or deploy). `list` / `add` / `activate` / `deactivate` are live; `test` is a stub. |
+| `npx admin <cmd>` | Thin HTTP client for Worker `/admin` routes. Needs `NOTIFIER_ADMIN_TOKEN` locally (or `NOTIFIER_REMOTE_ADMIN_TOKEN` with `--remote`) and a running Worker (`wrangler dev` or deploy). `list` / `add` / `activate` / `deactivate` / `resync` are live; `test` is a stub. |
 
 No test or lint scripts are configured.
 
@@ -22,15 +22,15 @@ Cloudflare Worker (`src/index.ts`) that posts Discord messages for Kick go-live 
 Subscriptions are **one KV key per channel** in `SUBSCRIPTIONS`:
 
 - Kick: `kick:{user_id}` → `{ id, slug, active, channel?, links?, mentions? }`
-- YouTube: `youtube:{channelId}` → `{ id, name, url, active, icon?, channel?, lastSubscribedAt? }`
+- YouTube: `youtube:{channelId}` → `{ id, name, url, active, icon?, channel?, lastSubscribedAt?, lastVerifiedAt? }`
 - Dedup: `youtube_video_sent:{videoId}` (unchanged)
 
-`active: false` skips Discord. The daily cron in `src/scheduled.ts` lists `youtube:` keys and enqueues a WebSub refresh per active channel whose `lastSubscribedAt` is missing or older than 10 days. The `queue` handler posts to the hub, records `lastSubscribedAt` on success, and retries on failure (up to 100 queue retries, then a fresh job).
+`active: false` skips Discord. The daily cron in `src/scheduled.ts` lists `youtube:` keys and enqueues a WebSub refresh per active channel whose `lastSubscribedAt` is missing or older than 10 days. The `queue` handler posts to the hub with callback `SERVICE_URL/webhooks/youtube`, records `lastSubscribedAt` on success, and retries on failure (up to 100 queue retries, then a fresh job). WebSub GET `/webhooks/youtube` (and alias `GET /`) echoes the challenge only when the RFC query parses and `youtube:{channelId}` exists on subscribe (and records `lastVerifiedAt`); unsubscribe is accepted only when that key is missing.
 
-Admin (`src/admin.ts`): authenticated `/admin/subscriptions` routes (Bearer `ADMIN_TOKEN`) for list/add/activate/deactivate. Lookup + KV + YouTube queue enqueue run in the Worker. The CLI (`scripts/admin.ts`) only `fetch`es those routes.
+Admin (`src/admin.ts`): authenticated `/admin/subscriptions`, `/admin/subscriptions/:provider`, `/admin/subscriptions/youtube/resync`, and `/admin/subscriptions/:provider/:id` routes (Bearer `ADMIN_TOKEN`) for list/add/activate/deactivate/resync. Add looks up the alias; activate/deactivate use the stored Kick user id or YouTube channel id. Resync enqueues a WebSub subscribe job for every active YouTube channel (skips the cron’s 10-day lease filter). The CLI (`scripts/admin.ts`) only `fetch`es those routes.
 
 Flow:
-1. Worker accepts admin `/admin/*` (GET/POST), `GET` for YouTube WebSub verification, and `POST` for webhooks; other methods return 404.
+1. Worker accepts admin `/admin/*` (GET/POST), `GET`/`POST` `/webhooks/youtube` for YouTube WebSub (KV-checked verification sets `lastVerifiedAt`; `GET /` is an alias), and `POST` for Kick webhooks; other methods return 404.
 2. Kick: `Kick-Event-Type: livestream.status.updated` with `is_live: true` loads `kick:{broadcaster.user_id}`. Inactive or missing keys are skipped; the webhook still gets 200.
 3. YouTube: Atom/XML body is parsed; each video loads `youtube:{channelId}`. Notify only if the sub is active, the video is recent, and `youtube_video_sent:{videoId}` is unset.
 4. Discord destination: Kick uses `sub.channel ?? DISCORD_DEFAULT_CHANNEL`; YouTube uses `sub.channel ?? DISCORD_DEFAULT_YOUTUBE_CHANNEL`. Kick `links`/`mentions` behave as before. YouTube embed author uses `sub.name` / `sub.icon` when set.

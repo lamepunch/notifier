@@ -26,8 +26,99 @@ const router = AutoRouter<IRequest, [Env, ExecutionContext]>({
 
 router
   .all("/admin/*", admin.fetch)
-  .get("*", (request) => handleWebSubVerification(request))
+  .get("/webhooks/youtube", (request) => handleWebSubVerification(request))
+  .post("/webhooks/youtube", handleYouTubeFeedPost)
+  .get("/", (request) => handleWebSubVerification(request))
   .post("*", handleWebhookPost);
+
+async function handleYouTubeFeedPost(
+  request: IRequest,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  return processYouTubeNotification(
+    await request.text(),
+    request.headers.get("Content-Type") || "",
+    env,
+    ctx,
+  );
+}
+
+async function processYouTubeNotification(
+  payload: string,
+  contentType: string,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  console.log({
+    message: "YouTube notification received",
+    contentType,
+    payload,
+  });
+
+  let videos = parseYouTubeFeed(payload);
+
+  console.log({
+    message: "YouTube notification parsed",
+    videoCount: videos.length,
+  });
+
+  for (let video of videos) {
+    let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
+      youtubeKey(video.channelId),
+      { type: "json" },
+    );
+
+    let isSubscribed: boolean = !!sub?.active;
+
+    // Pings also fire for edits of old videos and are retried by the
+    // hub, so "new upload" means: published recently AND not already
+    // sent (tracked in KV).
+    let isRecent: boolean =
+      Date.now() - new Date(video.published).getTime() < ONE_DAY_IN_MS;
+
+    let sentKey = youtubeVideoSentKey(video.videoId);
+
+    let hasAlreadySent: boolean =
+      isSubscribed && isRecent
+        ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
+        : false;
+
+    let isAccepted: boolean = isSubscribed && isRecent && !hasAlreadySent;
+
+    console.log({
+      message: isAccepted
+        ? "Video accepted, sending notification"
+        : "Video skipped",
+      videoId: video.videoId,
+      channelId: video.channelId,
+      published: video.published,
+      updated: video.updated,
+      isSubscribed,
+      isRecent,
+      hasAlreadySent,
+    });
+
+    if (isAccepted && sub) {
+      // ponytail: KV is eventually consistent, so pings landing in
+      // different colos within ~60s could double-send; a Durable
+      // Object would make this exactly-once if that ever matters.
+      await env.SUBSCRIPTIONS.put(sentKey, video.published, {
+        expirationTtl: VIDEO_SENT_TTL_IN_S,
+      });
+      try {
+        ctx.waitUntil(processYouTubeUpload(video, sub));
+      } catch (error) {
+        console.error({
+          message: "YouTube upload processing failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  return new Response();
+}
 
 async function handleWebhookPost(
   request: IRequest,
@@ -61,74 +152,7 @@ async function handleWebhookPost(
 
     return new Response();
   } else if (isYouTubeFeed) {
-    console.log({
-      message: "YouTube notification received",
-      contentType,
-      payload,
-    });
-
-    let videos = parseYouTubeFeed(payload);
-
-    console.log({
-      message: "YouTube notification parsed",
-      videoCount: videos.length,
-    });
-
-    for (let video of videos) {
-      let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-        youtubeKey(video.channelId),
-        { type: "json" },
-      );
-
-      let isSubscribed: boolean = !!sub?.active;
-
-      // Pings also fire for edits of old videos and are retried by the
-      // hub, so "new upload" means: published recently AND not already
-      // sent (tracked in KV).
-      let isRecent: boolean =
-        Date.now() - new Date(video.published).getTime() < ONE_DAY_IN_MS;
-
-      let sentKey = youtubeVideoSentKey(video.videoId);
-
-      let hasAlreadySent: boolean =
-        isSubscribed && isRecent
-          ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
-          : false;
-
-      let isAccepted: boolean = isSubscribed && isRecent && !hasAlreadySent;
-
-      console.log({
-        message: isAccepted
-          ? "Video accepted, sending notification"
-          : "Video skipped",
-        videoId: video.videoId,
-        channelId: video.channelId,
-        published: video.published,
-        updated: video.updated,
-        isSubscribed,
-        isRecent,
-        hasAlreadySent,
-      });
-
-      if (isAccepted && sub) {
-        // ponytail: KV is eventually consistent, so pings landing in
-        // different colos within ~60s could double-send; a Durable
-        // Object would make this exactly-once if that ever matters.
-        await env.SUBSCRIPTIONS.put(sentKey, video.published, {
-          expirationTtl: VIDEO_SENT_TTL_IN_S,
-        });
-        try {
-          ctx.waitUntil(processYouTubeUpload(video, sub));
-        } catch (error) {
-          console.error({
-            message: "YouTube upload processing failed",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    }
-
-    return new Response();
+    return processYouTubeNotification(payload, contentType, env, ctx);
   } else {
     console.log({
       message: "POST request matched no handler",

@@ -1,5 +1,6 @@
 import XMLParser from "@nodable/flexible-xml-parser";
 import { env } from "cloudflare:workers";
+import * as v from "valibot";
 
 import type {
   YouTubeFeed,
@@ -8,28 +9,90 @@ import type {
 } from "../types.d.ts";
 
 import { DISCORD_API_BASE } from "../constants";
+import { youtubeKey } from "../kv";
 
 const YOUTUBE_EMBED_COLOR = 16_711_680;
 
-export function handleWebSubVerification(request: Request): Response {
-  let url = new URL(request.url);
-  let hubMode = url.searchParams.get("hub.mode");
-  let hubChallenge = url.searchParams.get("hub.challenge");
-  let hubTopic = url.searchParams.get("hub.topic");
-  let hubLease = url.searchParams.get("hub.lease_seconds");
-  let isValidChallenge =
-    !!hubChallenge && (hubMode === "subscribe" || hubMode === "unsubscribe");
+const webSubVerification = v.variant("hub.mode", [
+  v.object({
+    "hub.mode": v.literal("subscribe"),
+    "hub.topic": v.pipe(v.string(), v.url()),
+    "hub.challenge": v.pipe(v.string(), v.minLength(1)),
+    "hub.lease_seconds": v.pipe(v.string(), v.digits()),
+  }),
+  v.object({
+    "hub.mode": v.literal("unsubscribe"),
+    "hub.topic": v.pipe(v.string(), v.url()),
+    "hub.challenge": v.pipe(v.string(), v.minLength(1)),
+    "hub.lease_seconds": v.optional(v.pipe(v.string(), v.digits())),
+  }),
+]);
 
-  if (isValidChallenge) {
-    console.log({
-      message: "WebSub verification accepted",
-      hubMode,
-      hubTopic,
-      hubLease,
-    });
-    return new Response(hubChallenge, {
-      headers: { "Content-Type": "text/plain" },
-    });
+function channelIdFromTopic(topic: string): string | undefined {
+  return new URL(topic).searchParams.get("channel_id") ?? undefined;
+}
+
+export async function handleWebSubVerification(
+  request: Request,
+): Promise<Response> {
+  let url = new URL(request.url);
+  let parsed = v.safeParse(
+    webSubVerification,
+    Object.fromEntries(url.searchParams),
+  );
+
+  if (parsed.success) {
+    let channelId = channelIdFromTopic(parsed.output["hub.topic"]);
+    if (channelId) {
+      let hubMode = parsed.output["hub.mode"];
+      let hubChallenge = parsed.output["hub.challenge"];
+      let hubTopic = parsed.output["hub.topic"];
+      let hubLease = parsed.output["hub.lease_seconds"];
+      let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
+        youtubeKey(channelId),
+        { type: "json" },
+      );
+      let isKnown = !!sub;
+      let isSubscribe = hubMode === "subscribe";
+      let isUnsubscribe = hubMode === "unsubscribe";
+      let isAccepted =
+        (isSubscribe && isKnown) || (isUnsubscribe && !isKnown);
+
+      if (isAccepted) {
+        if (isSubscribe && sub) {
+          sub.lastVerifiedAt = new Date().toISOString();
+          await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
+        }
+
+        console.log({
+          message: "WebSub verification accepted",
+          hubMode,
+          hubTopic,
+          hubLease,
+          channelId,
+        });
+        return new Response(hubChallenge, {
+          headers: { "Content-Type": "text/plain" },
+        });
+      } else {
+        console.log({
+          message: "WebSub verification rejected",
+          url: request.url,
+          hubMode,
+          hubTopic,
+          hubLease,
+          channelId,
+          isKnown,
+        });
+        return new Response(null, { status: 404 });
+      }
+    } else {
+      console.log({
+        message: "GET request was not a valid WebSub verification",
+        url: request.url,
+      });
+      return new Response(null, { status: 404 });
+    }
   } else {
     console.log({
       message: "GET request was not a valid WebSub verification",

@@ -18,19 +18,23 @@ tailscale funnel --bg 8787
 npm start
 ```
 
-`npm start` passes `--var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net`, which overrides the workers.dev URL in `wrangler.jsonc`. Deploy still uses the production value.
+`npm start` passes `--var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net`, which overrides the workers.dev URL in `wrangler.jsonc`. Deploy still uses the production value. The hub callback is `SERVICE_URL/webhooks/youtube`.
 
 Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
 
 | Key | Value |
 |-----|--------|
 | `kick:{user_id}` | `{ id, slug, active, channel?, links?, mentions? }` |
-| `youtube:{channelId}` | `{ id, name, url, active, icon?, channel?, lastSubscribedAt? }` |
+| `youtube:{channelId}` | `{ id, name, url, active, icon?, channel?, lastSubscribedAt?, lastVerifiedAt? }` |
 
 `active: false` keeps the record but skips Discord notifies. The daily cron
 enqueues a WebSub refresh for **active** YouTube channels that have not
 been subscribed in the last 10 days; the queue consumer posts to the hub,
-stores `lastSubscribedAt` on success, and retries on failure.
+stores `lastSubscribedAt` on success, and retries on failure. The hub's
+later GET to `/webhooks/youtube` (RFC query: `hub.mode`, `hub.topic`,
+`hub.challenge`, `hub.lease_seconds`) is accepted only for a stored
+channel and sets `lastVerifiedAt`. `GET /` still accepts verification so
+existing origin callbacks keep working until they refresh.
 
 Create the Queues once before the first deploy (account-level names):
 
@@ -56,8 +60,9 @@ npx admin list
 npx admin list youtube
 npx admin add kick <alias> [--channel <discordId>]
 npx admin add youtube <alias>
-npx admin activate youtube <alias>
-npx admin deactivate kick <alias>
+npx admin activate youtube <id>
+npx admin deactivate kick <id>
+npx admin resync              # enqueue WebSub subscribe for all active YouTube channels
 npx admin test kick <alias>   # stub
 ```
 

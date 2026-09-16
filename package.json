@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@nodable/flexible-xml-parser": "^1.10.0",
-    "itty-router": "^5.0.24"
+    "itty-router": "^5.0.24",
+    "valibot": "^1.5.0"
   }
 }

@@ -98,7 +98,7 @@ targetFlags(
   ) => {
     let path = "/admin/subscriptions";
     if (provider && isProvider(provider)) {
-      path += `?provider=${provider}`;
+      path += `/${provider}`;
     }
     printJson(await adminFetch(opts.remote, path));
   },
@@ -117,10 +117,10 @@ targetFlags(
     alias: string,
     opts: { channel?: string; remote?: boolean },
   ) => {
-    let body: Record<string, string> = { provider, alias };
+    let body: Record<string, string> = { alias };
     if (opts.channel) body.channel = opts.channel;
     printJson(
-      await adminFetch(opts.remote, "/admin/subscriptions", {
+      await adminFetch(opts.remote, `/admin/subscriptions/${provider}`, {
         method: "POST",
         body,
       }),
@@ -133,18 +133,19 @@ targetFlags(
     .command("activate")
     .description("Set a subscription active")
     .addArgument(providerArg())
-    .argument("<alias>", "Kick slug or YouTube handle"),
+    .argument("<id>", "Kick user id or YouTube channel id"),
 ).action(
   async (
     provider: Provider,
-    alias: string,
+    id: string,
     opts: { remote?: boolean },
   ) => {
     printJson(
-      await adminFetch(opts.remote, "/admin/subscriptions/activate", {
-        method: "POST",
-        body: { provider, alias },
-      }),
+      await adminFetch(
+        opts.remote,
+        `/admin/subscriptions/${provider}/${encodeURIComponent(id)}/activate`,
+        { method: "POST" },
+      ),
     );
   },
 );
@@ -154,21 +155,34 @@ targetFlags(
     .command("deactivate")
     .description("Set a subscription inactive")
     .addArgument(providerArg())
-    .argument("<alias>", "Kick slug or YouTube handle"),
+    .argument("<id>", "Kick user id or YouTube channel id"),
 ).action(
   async (
     provider: Provider,
-    alias: string,
+    id: string,
     opts: { remote?: boolean },
   ) => {
     printJson(
-      await adminFetch(opts.remote, "/admin/subscriptions/deactivate", {
-        method: "POST",
-        body: { provider, alias },
-      }),
+      await adminFetch(
+        opts.remote,
+        `/admin/subscriptions/${provider}/${encodeURIComponent(id)}/deactivate`,
+        { method: "POST" },
+      ),
     );
   },
 );
+
+targetFlags(
+  program
+    .command("resync")
+    .description("Enqueue WebSub resubscribe for all active YouTube channels"),
+).action(async (opts: { remote?: boolean }) => {
+  printJson(
+    await adminFetch(opts.remote, "/admin/subscriptions/youtube/resync", {
+      method: "POST",
+    }),
+  );
+});
 
 program
   .command("test")

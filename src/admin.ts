@@ -1,5 +1,6 @@
 import { AutoRouter, StatusError, type IRequest } from "itty-router";
 import { env } from "cloudflare:workers";
+import * as v from "valibot";
 
 import type {
   KickChannelResponse,
@@ -13,6 +14,7 @@ import type {
 
 import { KV_GET_BATCH_LIMIT } from "./constants";
 import { KICK_PREFIX, YOUTUBE_PREFIX, kickKey, youtubeKey } from "./kv";
+import { enqueueYouTubeSubscriptions } from "./scheduled";
 
 const PROVIDERS = {
   kick: { prefix: KICK_PREFIX },
@@ -23,6 +25,11 @@ const PROVIDER_NAMES = Object.keys(PROVIDERS) as Provider[];
 
 const YOUTUBE_ID_RE = /^UC[\w-]{22}$/;
 const ERROR_BODY_PREVIEW_LENGTH = 200;
+
+const addSubscriptionBody = v.object({
+  alias: v.pipe(v.string(), v.trim(), v.minLength(1)),
+  channel: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1))),
+});
 
 /** True when `value` is `"kick"` or `"youtube"`. */
 function isProvider(value: string): value is Provider {
@@ -260,6 +267,9 @@ async function upsertSubscription(
   if (existing?.lastSubscribedAt) {
     record.lastSubscribedAt = existing.lastSubscribedAt;
   }
+  if (existing?.lastVerifiedAt) {
+    record.lastVerifiedAt = existing.lastVerifiedAt;
+  }
 
   await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
   return { [key]: record };
@@ -307,81 +317,75 @@ async function addSubscription(
 
 /**
  * Sets `active` on an existing KV subscription (activate / deactivate).
- * Resolves the alias first; 404 if that channel is not stored yet.
+ * `:id` is the stored Kick user id or YouTube channel id; 404 if missing.
  */
 async function setActive(
   provider: Provider,
-  alias: string,
+  id: string,
   active: boolean,
 ): Promise<Record<string, Subscription | YouTubeSubscription>> {
-  let found = await lookupByAlias(provider, alias);
-
-  if (found.provider === "kick") {
-    let key = kickKey(found.record.id);
+  if (provider === "kick") {
+    let userId = Number(id);
+    let isKickUserId = Number.isInteger(userId);
+    if (!isKickUserId) {
+      throw new StatusError(400, "id must be a Kick user id");
+    }
+    let key = kickKey(userId);
     let existing = await env.SUBSCRIPTIONS.get<Subscription>(key, {
       type: "json",
     });
     if (!existing) {
-      throw new StatusError(404, `No Kick subscription for ${alias}`);
+      throw new StatusError(404, `No Kick subscription for ${id}`);
     }
     let record: Subscription = { ...existing, active };
     await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
     return { [key]: record };
   }
 
-  let key = youtubeKey(found.record.id);
+  let isYouTubeChannelId = YOUTUBE_ID_RE.test(id);
+  if (!isYouTubeChannelId) {
+    throw new StatusError(400, "id must be a YouTube channel id");
+  }
+  let key = youtubeKey(id);
   let existing = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(key, {
     type: "json",
   });
   if (!existing) {
-    throw new StatusError(404, `No YouTube subscription for ${alias}`);
+    throw new StatusError(404, `No YouTube subscription for ${id}`);
   }
   let record: YouTubeSubscription = { ...existing, active };
   await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
   return { [key]: record };
 }
 
-/** Reads the request JSON object, or 400 if the body is missing/invalid. */
-async function readJsonBody(
+/** Parses JSON with `schema`, or 400 if the body is missing/invalid. */
+async function parseJsonBody<TSchema extends v.GenericSchema>(
   request: Request,
-): Promise<Record<string, unknown>> {
+  schema: TSchema,
+): Promise<v.InferOutput<TSchema>> {
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     throw new StatusError(400, "Invalid JSON body");
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new StatusError(400, "JSON body must be an object");
+  let parsed = v.safeParse(schema, body);
+  if (!parsed.success) {
+    throw new StatusError(400, parsed.issues[0].message);
   }
-  return body as Record<string, unknown>;
+  return parsed.output;
 }
 
-/**
- * Pulls `provider`, `alias`, and optional `channel` off an add/activate body.
- * Throws 400 if provider is not kick/youtube or alias is empty.
- */
-function requireProviderAlias(body: Record<string, unknown>): {
-  provider: Provider;
-  alias: string;
-  channel?: string;
-} {
-  let providerRaw = body.provider;
-  let aliasRaw = body.alias;
+/** Reads `:provider` from the URL. Throws 400 unless it is kick or youtube. */
+function requireProvider(request: IRequest): Provider {
+  let providerRaw = request.params.provider;
   if (typeof providerRaw !== "string" || !isProvider(providerRaw)) {
     throw new StatusError(
       400,
       `provider must be one of: ${PROVIDER_NAMES.join(", ")}`,
     );
   }
-  if (typeof aliasRaw !== "string" || !aliasRaw.trim()) {
-    throw new StatusError(400, "alias is required");
-  }
-  let channel =
-    typeof body.channel === "string" && body.channel.trim()
-      ? body.channel.trim()
-      : undefined;
-  return { provider: providerRaw, alias: aliasRaw.trim(), channel };
+  return providerRaw;
 }
 
 /**
@@ -408,43 +412,47 @@ function respondWithAdminError(error: unknown): Response {
   return json({ error: "Something went wrong" }, 500);
 }
 
-const admin = AutoRouter<IRequest>({
+const admin = AutoRouter({
   base: "/admin",
   before: [rejectUnauthorized],
   catch: respondWithAdminError,
   missing: () => json({ error: "Not found" }, 404),
 });
 
-admin.get("/subscriptions", async (request) => {
-  let providerParam = request.query.provider;
-  let provider: Provider | undefined;
-  if (typeof providerParam === "string") {
-    if (!isProvider(providerParam)) {
-      throw new StatusError(
-        400,
-        `provider must be one of: ${PROVIDER_NAMES.join(", ")}`,
-      );
-    }
-    provider = providerParam;
+admin.get("/subscriptions", async () => {
+  return json(await listSubscriptions());
+});
+
+admin.get("/subscriptions/:provider", async (request) => {
+  return json(await listSubscriptions(requireProvider(request)));
+});
+
+admin.post("/subscriptions/youtube/resync", async () => {
+  if (!env.SERVICE_URL) {
+    throw new StatusError(500, "SERVICE_URL is not set");
   }
-  return json(await listSubscriptions(provider));
+  let result = await enqueueYouTubeSubscriptions(true);
+  return json({
+    message: "YouTube WebSub jobs enqueued",
+    ...result,
+  });
 });
 
-admin.post("/subscriptions", async (request) => {
-  let { provider, alias, channel } = requireProviderAlias(
-    await readJsonBody(request),
+admin.post("/subscriptions/:provider", async (request) => {
+  let { alias, channel } = await parseJsonBody(request, addSubscriptionBody);
+  return json(await addSubscription(requireProvider(request), alias, channel));
+});
+
+admin.post("/subscriptions/:provider/:id/activate", async (request) => {
+  return json(
+    await setActive(requireProvider(request), request.params.id, true),
   );
-  return json(await addSubscription(provider, alias, channel));
 });
 
-admin.post("/subscriptions/activate", async (request) => {
-  let { provider, alias } = requireProviderAlias(await readJsonBody(request));
-  return json(await setActive(provider, alias, true));
-});
-
-admin.post("/subscriptions/deactivate", async (request) => {
-  let { provider, alias } = requireProviderAlias(await readJsonBody(request));
-  return json(await setActive(provider, alias, false));
+admin.post("/subscriptions/:provider/:id/deactivate", async (request) => {
+  return json(
+    await setActive(requireProvider(request), request.params.id, false),
+  );
 });
 
 export default admin;

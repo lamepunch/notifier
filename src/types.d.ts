@@ -31,6 +31,7 @@ export interface YouTubeSubscription {
   icon?: string;
   channel?: string;
   lastSubscribedAt?: string;
+  lastVerifiedAt?: string;
 }
 
 export interface YouTubeVideo {

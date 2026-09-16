@@ -20,9 +20,7 @@ export async function scheduled(): Promise<void> {
   if (env.SERVICE_URL) {
     await enqueueYouTubeSubscriptions();
   } else {
-    console.warn(
-      "SERVICE_URL is not set; skipping enqueue of WebSub hub jobs",
-    );
+    console.warn("SERVICE_URL is not set; skipping enqueue of WebSub hub jobs");
   }
 }
 
@@ -39,7 +37,10 @@ async function listYouTubeKeys(): Promise<string[]> {
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
 
-  console.log({ message: "Listed YouTube subscription keys from KV", count: keys.length });
+  console.log({
+    message: "Listed YouTube subscription keys from KV",
+    count: keys.length,
+  });
   return keys;
 }
 
@@ -75,19 +76,28 @@ function needsWebSubRefresh(sub: YouTubeSubscription): boolean {
   return !hasTimestamp || !isValidTimestamp || isLeaseExpired;
 }
 
-async function enqueueYouTubeSubscriptions() {
+export async function enqueueYouTubeSubscriptions(
+  force = false,
+): Promise<{ count: number; skipped: number; active: number }> {
   let keys = await listYouTubeKeys();
   let active = (await loadYouTubeSubscriptions(keys)).filter(
     (sub) => sub.active,
   );
-  let subs = active.filter(needsWebSubRefresh);
-  let skipped = active.length - subs.length;
 
-  if (subs.length === 0) {
+  let subs = active.filter(needsWebSubRefresh);
+  // Enqueue all subscriptions if a resync operation was requested
+  if (force) {
+    subs = active;
+  }
+  let skipped = active.length - subs.length;
+  let count = subs.length;
+
+  if (count === 0) {
     console.log({
       message: "No YouTube channels need a WebSub hub refresh",
       active: active.length,
       skipped,
+      force,
     });
   } else {
     for (let i = 0; i < subs.length; i += QUEUE_SEND_BATCH_LIMIT) {
@@ -99,10 +109,13 @@ async function enqueueYouTubeSubscriptions() {
 
     console.log({
       message: "Enqueued WebSub hub subscribe jobs",
-      count: subs.length,
+      count,
       skipped,
+      force,
     });
   }
+
+  return { count, skipped, active: active.length };
 }
 
 function retryDelaySeconds(attempts: number): number {
@@ -182,7 +195,10 @@ export async function queue(
         throw new Error("SERVICE_URL is not set");
       }
 
-      await subscribeToYouTubeChannel(channelId, env.SERVICE_URL);
+      await subscribeToYouTubeChannel(
+        channelId,
+        new URL("/webhooks/youtube", env.SERVICE_URL).href,
+      );
       sub.lastSubscribedAt = new Date().toISOString();
       await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
       message.ack();
@@ -200,8 +216,7 @@ export async function queue(
       // Queues stop retrying after max_retries; send a fresh job so a
       // flaky hub keeps being attempted until it accepts (or we deactivate).
       if (message.attempts >= QUEUE_MAX_RETRIES) {
-        let requeueDelay =
-          delaySeconds ?? retryDelaySeconds(message.attempts);
+        let requeueDelay = delaySeconds ?? retryDelaySeconds(message.attempts);
         console.warn({
           message: "Queue retries exhausted; sending a new WebSub hub job",
           channelId,
@@ -285,5 +300,8 @@ async function subscribeToYouTubeChannel(
     throw error;
   }
 
-  console.log({ message: "WebSub hub accepted subscription request", channelId });
+  console.log({
+    message: "WebSub hub accepted subscription request",
+    channelId,
+  });
 }
