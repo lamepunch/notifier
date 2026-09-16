@@ -184,6 +184,60 @@ targetFlags(
   );
 });
 
+targetFlags(
+  program
+    .command("poll")
+    .description("Set YouTube polling flags on a stored subscription")
+    .addArgument(providerArg())
+    .argument("<id>", "YouTube channel id")
+    .option("--all", "Enable backup polling for public uploads")
+    .option("--members", "Set the members-only polling flag (not polled yet)")
+    .option("--off", "Disable polling"),
+).action(
+  async (
+    provider: Provider,
+    id: string,
+    opts: {
+      all?: boolean;
+      members?: boolean;
+      off?: boolean;
+      remote?: boolean;
+    },
+  ) => {
+    if (provider !== "youtube") {
+      throw new Error("poll is only supported for youtube");
+    }
+
+    let hasOff = !!opts.off;
+    let hasAll = !!opts.all;
+    let hasMembers = !!opts.members;
+    let hasEnable = hasAll || hasMembers;
+    if (hasOff && hasEnable) {
+      throw new Error("--off cannot be combined with --all or --members");
+    }
+    if (!hasOff && !hasEnable) {
+      throw new Error("specify --all, --members, or --off");
+    }
+
+    let body: { all?: boolean; members?: boolean };
+    if (hasOff) {
+      body = { all: false, members: false };
+    } else {
+      body = {};
+      if (hasAll) body.all = true;
+      if (hasMembers) body.members = true;
+    }
+
+    printJson(
+      await adminFetch(
+        opts.remote,
+        `/admin/subscriptions/youtube/${encodeURIComponent(id)}/poll`,
+        { method: "POST", body },
+      ),
+    );
+  },
+);
+
 program
   .command("test")
   .description("Send a test event to the local worker")

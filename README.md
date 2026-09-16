@@ -2,7 +2,7 @@
 
 Cloudflare Worker that posts Discord notifications when a subscribed Kick
 channel goes live (via Kick webhooks) or a subscribed YouTube channel uploads
-a video (via WebSub/PubSubHubbub).
+a video (via WebSub/PubSubHubbub, with Data API polling as a backup).
 
 ## Setup
 
@@ -25,21 +25,32 @@ Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
 | Key | Value |
 |-----|--------|
 | `kick:{user_id}` | `{ id, slug, active, channel?, links?, mentions? }` |
-| `youtube:{channelId}` | `{ id, name, url, active, icon?, channel?, lastSubscribedAt?, lastVerifiedAt? }` |
+| `youtube:{channelId}` | `{ id, name, url, active, icon?, channel?, lastSubscribedAt?, lastVerifiedAt?, polling?: { all, members } }` |
 
-`active: false` keeps the record but skips Discord notifies. The daily cron
-enqueues a WebSub refresh for **active** YouTube channels that have not
-been subscribed in the last 10 days; the queue consumer posts to the hub,
-stores `lastSubscribedAt` on success, and retries on failure. The hub's
-later GET to `/webhooks/youtube` (RFC query: `hub.mode`, `hub.topic`,
-`hub.challenge`, `hub.lease_seconds`) is accepted only for a stored
-channel and sets `lastVerifiedAt`. `GET /` still accepts verification so
-existing origin callbacks keep working until they refresh.
+`active: false` keeps the record but skips Discord notifies. Omit `polling`
+when both flags are false; when present, both keys are set. `polling.all`
+polls public uploads via Data API `playlistItems` (uploads playlist `UC…` →
+`UU…`) as a WebSub backup. `polling.members` is stored for later and is not
+polled yet.
+
+The daily cron enqueues a WebSub refresh for **active** YouTube channels that
+have not been subscribed in the last 10 days; the queue consumer posts to the
+hub, stores `lastSubscribedAt` on success (and clears `polling.all`), and on
+the first hub failure sets `polling.all` and enqueues a poll job. Poll jobs
+run every 15 minutes while `polling.all` is true and share WebSub’s notify
+path (active + published in the last 24h + `youtube_video_sent:{videoId}`
+unset). The daily cron also re-enqueues poll jobs for those channels so a
+dropped message cannot kill the loop. The hub's later GET to
+`/webhooks/youtube` (RFC query: `hub.mode`, `hub.topic`, `hub.challenge`,
+`hub.lease_seconds`) is accepted only for a stored channel and sets
+`lastVerifiedAt`. `GET /` still accepts verification so existing origin
+callbacks keep working until they refresh.
 
 Create the Queues once before the first deploy (account-level names):
 
 ```sh
 npx wrangler queues create notifier-youtube-websub
+npx wrangler queues create notifier-youtube-poll
 ```
 
 ## Admin CLI
@@ -63,12 +74,15 @@ npx admin add youtube <alias>
 npx admin activate youtube <id>
 npx admin deactivate kick <id>
 npx admin resync              # enqueue WebSub subscribe for all active YouTube channels
+npx admin poll youtube <id> --all|--members|--off
 npx admin test kick <alias>   # stub
 ```
 
 Defaults to `http://localhost:8787`. Use `--remote` for
 `https://notifier.grenuttag.workers.dev`.
 A YouTube `add` enqueues a WebSub subscribe job on the Worker.
+`npx admin poll youtube <id> --all` sets `polling.all` and enqueues a poll
+job immediately. `--members` only stores the flag. `--off` removes `polling`.
 
 If production is behind Cloudflare Access, the CLI must be allowed through
 (path bypass or Access service token). Worker auth is Bearer only.
@@ -83,5 +97,6 @@ npm run deploy
 ```
 
 After deploying, the daily cron enqueues WebSub refreshes for **active**
-YouTube channels (retries until the hub accepts); Kick webhooks must be
-pointed at the worker URL from Kick's side.
+YouTube channels (retries until the hub accepts; first hub failure turns on
+`polling.all`) and poll watchdog jobs for channels already polling; Kick
+webhooks must be pointed at the worker URL from Kick's side.
