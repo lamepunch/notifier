@@ -49,55 +49,55 @@ export async function handleWebSubVerification(
     Object.fromEntries(url.searchParams),
   );
 
-  if (parsed.success) {
-    let channelId = channelIdFromTopic(parsed.output["hub.topic"]);
-    if (channelId) {
-      let hubMode = parsed.output["hub.mode"];
-      let hubChallenge = parsed.output["hub.challenge"];
-      let hubTopic = parsed.output["hub.topic"];
-      let hubLease = parsed.output["hub.lease_seconds"];
-      let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-        youtubeKey(channelId),
-        { type: "json" },
-      );
-      let isKnown = !!sub;
-      let isSubscribe = hubMode === "subscribe";
-      let isUnsubscribe = hubMode === "unsubscribe";
-      let isAccepted =
-        (isSubscribe && isKnown) || (isUnsubscribe && !isKnown);
+  if (!parsed.success) {
+    console.log({
+      message: "GET request was not a valid WebSub verification",
+      url: request.url,
+    });
+    return new Response(null, { status: 404 });
+  }
 
-      if (isAccepted) {
-        if (isSubscribe && sub) {
-          sub.lastVerifiedAt = new Date().toISOString();
-          await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
-        }
+  let channelId = channelIdFromTopic(parsed.output["hub.topic"]);
+  if (channelId) {
+    let hubMode = parsed.output["hub.mode"];
+    let hubChallenge = parsed.output["hub.challenge"];
+    let hubTopic = parsed.output["hub.topic"];
+    let hubLease = parsed.output["hub.lease_seconds"];
+    let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
+      youtubeKey(channelId),
+      { type: "json" },
+    );
+    let isKnown = !!sub;
+    let isSubscribe = hubMode === "subscribe";
+    let isUnsubscribe = hubMode === "unsubscribe";
+    let isAccepted =
+      (isSubscribe && isKnown) || (isUnsubscribe && !isKnown);
 
-        console.log({
-          message: "WebSub verification accepted",
-          hubMode,
-          hubTopic,
-          hubLease,
-          channelId,
-        });
-        return new Response(hubChallenge, {
-          headers: { "Content-Type": "text/plain" },
-        });
-      } else {
-        console.log({
-          message: "WebSub verification rejected",
-          url: request.url,
-          hubMode,
-          hubTopic,
-          hubLease,
-          channelId,
-          isKnown,
-        });
-        return new Response(null, { status: 404 });
+    if (isAccepted) {
+      if (isSubscribe && sub) {
+        sub.lastVerifiedAt = new Date().toISOString();
+        await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
       }
+
+      console.log({
+        message: "WebSub verification accepted",
+        hubMode,
+        hubTopic,
+        hubLease,
+        channelId,
+      });
+      return new Response(hubChallenge, {
+        headers: { "Content-Type": "text/plain" },
+      });
     } else {
       console.log({
-        message: "GET request was not a valid WebSub verification",
+        message: "WebSub verification rejected",
         url: request.url,
+        hubMode,
+        hubTopic,
+        hubLease,
+        channelId,
+        isKnown,
       });
       return new Response(null, { status: 404 });
     }
