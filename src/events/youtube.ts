@@ -135,6 +135,7 @@ export function setPollingFlags(
 export async function notifyIfNewYouTubeVideo(
   video: YouTubeVideo,
   ctx: ExecutionContext,
+  fromHub = false,
 ): Promise<void> {
   let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
     youtubeKey(video.channelId),
@@ -174,6 +175,20 @@ export async function notifyIfNewYouTubeVideo(
     await env.SUBSCRIPTIONS.put(sentKey, video.published, {
       expirationTtl: VIDEO_SENT_TTL_IN_S,
     });
+    let shouldClearPolling = fromHub && sub.polling?.all === true;
+    if (shouldClearPolling) {
+      let members = sub.polling?.members ?? false;
+      setPollingFlags(sub, false, members);
+      await env.SUBSCRIPTIONS.put(
+        youtubeKey(video.channelId),
+        JSON.stringify(sub),
+      );
+      console.log({
+        message: "Cleared YouTube polling after hub notification sent",
+        channelId: video.channelId,
+        videoId: video.videoId,
+      });
+    }
     try {
       ctx.waitUntil(processYouTubeUpload(video, sub));
     } catch (error) {

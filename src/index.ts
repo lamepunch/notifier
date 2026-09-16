@@ -58,7 +58,7 @@ async function processYouTubeNotification(
   });
 
   for (let video of videos) {
-    await notifyIfNewYouTubeVideo(video, ctx);
+    await notifyIfNewYouTubeVideo(video, ctx, true);
   }
 
   return new Response();

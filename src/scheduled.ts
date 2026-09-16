@@ -321,8 +321,6 @@ async function handleSubscribeQueue(
         new URL("/webhooks/youtube", env.SERVICE_URL).href,
       );
       sub.lastSubscribedAt = new Date().toISOString();
-      let members = sub.polling?.members ?? false;
-      setPollingFlags(sub, false, members);
       await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
       message.ack();
     } catch (error) {

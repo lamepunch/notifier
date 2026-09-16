@@ -35,12 +35,13 @@ polled yet.
 
 The daily cron enqueues a WebSub refresh for **active** YouTube channels that
 have not been subscribed in the last 10 days; the queue consumer posts to the
-hub, stores `lastSubscribedAt` on success (and clears `polling.all`), and on
-the first hub failure sets `polling.all` and enqueues a poll job. Poll jobs
-run every 15 minutes while `polling.all` is true and share WebSub’s notify
-path (active + published in the last 24h + `youtube_video_sent:{videoId}`
-unset). The daily cron also re-enqueues poll jobs for those channels so a
-dropped message cannot kill the loop. The hub's later GET to
+hub, stores `lastSubscribedAt` on success, and on the first hub failure sets
+`polling.all` and enqueues a poll job. Poll jobs run every 15 minutes while
+`polling.all` is true and share WebSub’s notify path (active + published in
+the last 24h + `youtube_video_sent:{videoId}` unset). `polling.all` clears
+when a hub feed POST is accepted and Discord is sent, not when the hub
+accepts the subscribe POST. The daily cron also re-enqueues poll jobs for
+those channels so a dropped message cannot kill the loop. The hub's later GET to
 `/webhooks/youtube` (RFC query: `hub.mode`, `hub.topic`, `hub.challenge`,
 `hub.lease_seconds`) is accepted only for a stored channel and sets
 `lastVerifiedAt`. `GET /` still accepts verification so existing origin
