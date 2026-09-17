@@ -4,10 +4,10 @@ import type {
   YouTubePollJob,
   YouTubeSubscribeJob,
   YouTubeSubscription,
-} from "../../types.d.ts";
+} from "@/types.d.ts";
 
-import { QUEUE_SEND_BATCH_LIMIT } from "../../constants";
-import { youtubeKey } from "../../kv";
+import { QUEUE_SEND_BATCH_LIMIT } from "@/constants";
+import { youtubeKey } from "@/kv";
 import { listYouTubeKeys, loadYouTubeSubscriptions, setPollingFlags } from "./state";
 
 const QUEUE_MAX_RETRIES = 100;

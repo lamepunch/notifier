@@ -1,9 +1,9 @@
 import { env } from "cloudflare:workers";
 
-import type { YouTubePolling, YouTubeSubscription } from "../../types.d.ts";
+import type { YouTubePolling, YouTubeSubscription } from "@/types.d.ts";
 
-import { KV_GET_BATCH_LIMIT } from "../../constants";
-import { YOUTUBE_PREFIX } from "../../kv";
+import { KV_GET_BATCH_LIMIT } from "@/constants";
+import { YOUTUBE_PREFIX } from "@/kv";
 
 export async function listYouTubeKeys(): Promise<string[]> {
   let keys: string[] = [];

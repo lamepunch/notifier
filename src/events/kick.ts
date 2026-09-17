@@ -1,9 +1,9 @@
 import { env } from "cloudflare:workers";
 
-import type { LivestreamStatusUpdated, Subscription } from "../types.d.ts";
+import type { LivestreamStatusUpdated, Subscription } from "@/types.d.ts";
 
-import { DISCORD_API_BASE } from "../constants";
-import { kickKey } from "../kv";
+import { DISCORD_API_BASE } from "@/constants";
+import { kickKey } from "@/kv";
 
 const KICK_EMBED_COLOR = 1_752_220;
 

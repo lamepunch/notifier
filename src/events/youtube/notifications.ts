@@ -1,9 +1,9 @@
 import { env } from "cloudflare:workers";
 
-import type { YouTubeSubscription, YouTubeVideo } from "../../types.d.ts";
+import type { YouTubeSubscription, YouTubeVideo } from "@/types.d.ts";
 
-import { DISCORD_API_BASE } from "../../constants";
-import { youtubeKey, youtubeVideoSentKey } from "../../kv";
+import { DISCORD_API_BASE } from "@/constants";
+import { youtubeKey, youtubeVideoSentKey } from "@/kv";
 import { setPollingFlags } from "./state";
 
 const YOUTUBE_EMBED_COLOR = 16_711_680;

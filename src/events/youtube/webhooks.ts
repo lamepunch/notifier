@@ -2,9 +2,9 @@ import XMLParser from "@nodable/flexible-xml-parser";
 import type { IRequest } from "itty-router";
 import * as v from "valibot";
 
-import type { YouTubeFeed, YouTubeSubscription, YouTubeVideo } from "../../types.d.ts";
+import type { YouTubeFeed, YouTubeSubscription, YouTubeVideo } from "@/types.d.ts";
 
-import { youtubeKey } from "../../kv";
+import { youtubeKey } from "@/kv";
 
 const webSubVerification = v.variant("hub.mode", [
   v.object({

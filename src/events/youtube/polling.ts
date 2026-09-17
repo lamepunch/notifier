@@ -7,10 +7,10 @@ import type {
   YouTubePlaylistItem,
   YouTubePlaylistItemsResponse,
   YouTubeVideo,
-} from "../../types.d.ts";
+} from "@/types.d.ts";
 
-import { QUEUE_SEND_BATCH_LIMIT } from "../../constants";
-import { youtubeKey } from "../../kv";
+import { QUEUE_SEND_BATCH_LIMIT } from "@/constants";
+import { youtubeKey } from "@/kv";
 import { notifyIfNewYouTubeVideo } from "./notifications";
 import { listYouTubeKeys, loadYouTubeSubscriptions } from "./state";
 

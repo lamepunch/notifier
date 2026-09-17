@@ -6,6 +6,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "notifier",
   "main": "src/index.ts",
+  "alias": {
+    "@": "./src",
+  },
   "compatibility_date": "2026-05-23",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
