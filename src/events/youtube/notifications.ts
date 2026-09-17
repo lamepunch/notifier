@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 
-import type { YouTubeSubscription, YouTubeVideo } from "@/types.d.ts";
+import type { YouTubeVideo } from "@/types.d.ts";
 
 import { DISCORD_API_BASE } from "@/constants";
-import { youtubeKey, youtubeVideoSentKey } from "@/kv";
+import { youtubeVideoSentKey } from "@/kv";
+import { YouTubeSubscription } from "@/subscriptions";
 import { setPollingFlags } from "./state";
 
 const YOUTUBE_EMBED_COLOR = 16_711_680;
@@ -15,10 +16,7 @@ export async function notifyIfNewYouTubeVideo(
   ctx: ExecutionContext,
   fromHub = false,
 ): Promise<void> {
-  let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-    youtubeKey(video.channelId),
-    { type: "json" },
-  );
+  let sub = await YouTubeSubscription.get(video.channelId);
 
   let isSubscribed: boolean = !!sub?.active;
   // Pings also fire for edits of old videos and are retried by the
@@ -57,10 +55,7 @@ export async function notifyIfNewYouTubeVideo(
     if (shouldClearPolling) {
       let members = sub.polling?.members ?? false;
       setPollingFlags(sub, false, members);
-      await env.SUBSCRIPTIONS.put(
-        youtubeKey(video.channelId),
-        JSON.stringify(sub),
-      );
+      await YouTubeSubscription.save(sub);
       console.log({
         message: "Cleared YouTube polling after hub notification sent",
         channelId: video.channelId,

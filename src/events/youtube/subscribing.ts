@@ -3,12 +3,11 @@ import { env } from "cloudflare:workers";
 import type {
   YouTubePollJob,
   YouTubeSubscribeJob,
-  YouTubeSubscription,
 } from "@/types.d.ts";
 
 import { QUEUE_SEND_BATCH_LIMIT } from "@/constants";
-import { youtubeKey } from "@/kv";
-import { listYouTubeKeys, loadYouTubeSubscriptions, setPollingFlags } from "./state";
+import { YouTubeSubscription } from "@/subscriptions";
+import { setPollingFlags } from "./state";
 
 const QUEUE_MAX_RETRIES = 100;
 
@@ -31,8 +30,7 @@ function needsWebSubRefresh(sub: YouTubeSubscription): boolean {
 export async function enqueueYouTubeSubscriptions(
   force = false,
 ): Promise<{ count: number; skipped: number; active: number }> {
-  let keys = await listYouTubeKeys();
-  let active = (await loadYouTubeSubscriptions(keys)).filter(
+  let active = (await YouTubeSubscription.list()).filter(
     (sub) => sub.active,
   );
 
@@ -130,10 +128,7 @@ export async function handleSubscribeQueue(
 
     let sub: YouTubeSubscription | null = null;
     try {
-      sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-        youtubeKey(channelId),
-        { type: "json" },
-      );
+      sub = await YouTubeSubscription.get(channelId);
 
       if (!sub?.active) {
         console.log({
@@ -153,7 +148,7 @@ export async function handleSubscribeQueue(
         new URL("/webhooks/youtube", env.SERVICE_URL).href,
       );
       sub.lastSubscribedAt = new Date().toISOString();
-      await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
+      await YouTubeSubscription.save(sub);
       message.ack();
     } catch (error) {
       let delaySeconds = delaySecondsFromError(error);
@@ -171,10 +166,7 @@ export async function handleSubscribeQueue(
         try {
           let members = sub.polling?.members ?? false;
           setPollingFlags(sub, true, members);
-          await env.SUBSCRIPTIONS.put(
-            youtubeKey(channelId),
-            JSON.stringify(sub),
-          );
+          await YouTubeSubscription.save(sub);
           await env.YOUTUBE_POLL.send({ channelId });
           console.log({
             message: "Enabled YouTube polling after WebSub hub failure",

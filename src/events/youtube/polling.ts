@@ -3,16 +3,14 @@ import { env } from "cloudflare:workers";
 import type {
   YouTubePollJob,
   YouTubeSubscribeJob,
-  YouTubeSubscription,
   YouTubePlaylistItem,
   YouTubePlaylistItemsResponse,
   YouTubeVideo,
 } from "@/types.d.ts";
 
 import { QUEUE_SEND_BATCH_LIMIT } from "@/constants";
-import { youtubeKey } from "@/kv";
+import { YouTubeSubscription } from "@/subscriptions";
 import { notifyIfNewYouTubeVideo } from "./notifications";
-import { listYouTubeKeys, loadYouTubeSubscriptions } from "./state";
 
 const POLL_INTERVAL_IN_S = 900;
 
@@ -21,8 +19,7 @@ const YOUTUBE_PLAYLIST_ITEMS_URL =
   "https://www.googleapis.com/youtube/v3/playlistItems";
 
 export async function enqueueYouTubePolls(): Promise<{ count: number }> {
-  let keys = await listYouTubeKeys();
-  let subs = (await loadYouTubeSubscriptions(keys)).filter(
+  let subs = (await YouTubeSubscription.list()).filter(
     (sub) => sub.active && sub.polling?.all === true,
   );
   let count = subs.length;
@@ -61,10 +58,7 @@ export async function handlePollQueue(
     });
 
     try {
-      let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-        youtubeKey(channelId),
-        { type: "json" },
-      );
+      let sub = await YouTubeSubscription.get(channelId);
       let shouldPoll = !!sub?.active && sub.polling?.all === true;
 
       if (!shouldPoll) {
@@ -81,10 +75,7 @@ export async function handlePollQueue(
         await notifyIfNewYouTubeVideo(video, ctx);
       }
 
-      let latest = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-        youtubeKey(channelId),
-        { type: "json" },
-      );
+      let latest = await YouTubeSubscription.get(channelId);
       let shouldReschedule =
         !!latest?.active && latest.polling?.all === true;
       if (shouldReschedule) {

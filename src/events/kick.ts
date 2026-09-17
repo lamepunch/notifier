@@ -1,9 +1,9 @@
 import { env } from "cloudflare:workers";
 
-import type { LivestreamStatusUpdated, Subscription } from "@/types.d.ts";
+import type { LivestreamStatusUpdated } from "@/types.d.ts";
 
 import { DISCORD_API_BASE } from "@/constants";
-import { kickKey } from "@/kv";
+import { KickSubscription } from "@/subscriptions";
 
 const KICK_EMBED_COLOR = 1_752_220;
 
@@ -13,9 +13,7 @@ export default async function processWebhook(data: LivestreamStatusUpdated) {
   let slug = broadcaster.channel_slug;
 
   let url = `https://kick.com/${slug}`;
-  let sub = await env.SUBSCRIPTIONS.get<Subscription>(kickKey(userId), {
-    type: "json",
-  });
+  let sub = await KickSubscription.get(userId);
 
   // If sub doesn't exist or is inactive, stop processing webhook early
   if (!sub || !sub.active) {

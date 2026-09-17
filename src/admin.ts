@@ -8,18 +8,16 @@ import type {
   Provider,
   Subscription,
   YouTubeChannelListResponse,
-  YouTubeSubscription,
   YouTubeTarget,
 } from "./types.d.ts";
 
-import { KV_GET_BATCH_LIMIT } from "./constants";
 import { setPollingFlags } from "./events/youtube/state";
-import { KICK_PREFIX, YOUTUBE_PREFIX, kickKey, youtubeKey } from "./kv";
+import { KickSubscription, YouTubeSubscription } from "./subscriptions";
 import { enqueueYouTubeSubscriptions } from "./events/youtube/subscribing";
 
 const PROVIDERS = {
-  kick: { prefix: KICK_PREFIX },
-  youtube: { prefix: YOUTUBE_PREFIX },
+  kick: KickSubscription,
+  youtube: YouTubeSubscription,
 } as const;
 
 const PROVIDER_NAMES = Object.keys(PROVIDERS) as Provider[];
@@ -63,39 +61,6 @@ function authorize(request: Request): boolean {
   if (provided.byteLength !== expected.byteLength) return false;
 
   return crypto.subtle.timingSafeEqual(provided, expected);
-}
-
-/**
- * All KV key names under `prefix` (e.g. `kick:` or `youtube:`).
- * Cloudflare returns keys in pages, so this loops until the list is complete.
- */
-async function listKeys(prefix: string): Promise<string[]> {
-  let keys: string[] = [];
-  let cursor: string | undefined;
-
-  do {
-    let page = await env.SUBSCRIPTIONS.list({ prefix, cursor });
-    keys.push(...page.keys.map((key) => key.name));
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
-
-  return keys;
-}
-
-/**
- * Loads each KV key as JSON. Used by `list` to turn key names into records.
- * Gets keys in batches because Cloudflare caps bulk get at 100 keys.
- */
-async function getJsonMap(keys: string[]): Promise<Map<string, unknown>> {
-  let out = new Map<string, unknown>();
-  for (let i = 0; i < keys.length; i += KV_GET_BATCH_LIMIT) {
-    let batch = keys.slice(i, i + KV_GET_BATCH_LIMIT);
-    let values = await env.SUBSCRIPTIONS.get(batch, { type: "json" });
-    for (let [key, value] of values) {
-      if (value) out.set(key, value);
-    }
-  }
-  return out;
 }
 
 /**
@@ -235,10 +200,8 @@ async function upsertSubscription(
   channel?: string,
 ): Promise<Record<string, Subscription | YouTubeSubscription>> {
   if (found.provider === "kick") {
-    let key = kickKey(found.record.id);
-    let existing = await env.SUBSCRIPTIONS.get<Subscription>(key, {
-      type: "json",
-    });
+    let key = KickSubscription.key(found.record.id);
+    let existing = await KickSubscription.get(found.record.id);
     let record: Subscription = {
       id: found.record.id,
       slug: found.record.slug,
@@ -253,14 +216,12 @@ async function upsertSubscription(
     if (found.record.mentions) record.mentions = found.record.mentions;
     else if (existing?.mentions) record.mentions = existing.mentions;
 
-    await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
+    await KickSubscription.save(record);
     return { [key]: record };
   }
 
-  let key = youtubeKey(found.record.id);
-  let existing = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(key, {
-    type: "json",
-  });
+  let key = YouTubeSubscription.key(found.record.id);
+  let existing = await YouTubeSubscription.get(found.record.id);
   let record: YouTubeSubscription = {
     id: found.record.id,
     name: found.record.name,
@@ -280,7 +241,7 @@ async function upsertSubscription(
     record.polling = existing.polling;
   }
 
-  await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
+  await YouTubeSubscription.save(record);
   return { [key]: record };
 }
 
@@ -295,8 +256,11 @@ async function listSubscriptions(
   let out: Record<string, Record<string, unknown>> = {};
 
   for (let name of names) {
-    let keys = await listKeys(PROVIDERS[name].prefix);
-    out[name] = Object.fromEntries(await getJsonMap(keys));
+    out[name] = Object.fromEntries(
+      name === "kick"
+        ? (await KickSubscription.list()).map((record) => [KickSubscription.key(record.id), record])
+        : (await YouTubeSubscription.list()).map((record) => [YouTubeSubscription.key(record.id), record]),
+    );
   }
 
   return out;
@@ -339,15 +303,13 @@ async function setActive(
     if (!isKickUserId) {
       throw new StatusError(400, "id must be a Kick user id");
     }
-    let key = kickKey(userId);
-    let existing = await env.SUBSCRIPTIONS.get<Subscription>(key, {
-      type: "json",
-    });
+    let key = KickSubscription.key(userId);
+    let existing = await KickSubscription.get(userId);
     if (!existing) {
       throw new StatusError(404, `No Kick subscription for ${id}`);
     }
     let record: Subscription = { ...existing, active };
-    await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
+    await KickSubscription.save(record);
     return { [key]: record };
   }
 
@@ -355,15 +317,13 @@ async function setActive(
   if (!isYouTubeChannelId) {
     throw new StatusError(400, "id must be a YouTube channel id");
   }
-  let key = youtubeKey(id);
-  let existing = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(key, {
-    type: "json",
-  });
+  let key = YouTubeSubscription.key(id);
+  let existing = await YouTubeSubscription.get(id);
   if (!existing) {
     throw new StatusError(404, `No YouTube subscription for ${id}`);
   }
   let record: YouTubeSubscription = { ...existing, active };
-  await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
+  await YouTubeSubscription.save(record);
   return { [key]: record };
 }
 
@@ -386,10 +346,8 @@ async function setYouTubePolling(
     throw new StatusError(400, "all or members is required");
   }
 
-  let key = youtubeKey(id);
-  let existing = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(key, {
-    type: "json",
-  });
+  let key = YouTubeSubscription.key(id);
+  let existing = await YouTubeSubscription.get(id);
   if (!existing) {
     throw new StatusError(404, `No YouTube subscription for ${id}`);
   }
@@ -398,7 +356,7 @@ async function setYouTubePolling(
   let members = patch.members ?? existing.polling?.members ?? false;
   let record: YouTubeSubscription = { ...existing };
   setPollingFlags(record, all, members);
-  await env.SUBSCRIPTIONS.put(key, JSON.stringify(record));
+  await YouTubeSubscription.save(record);
 
   let shouldEnqueue = record.polling?.all === true;
   if (shouldEnqueue) {

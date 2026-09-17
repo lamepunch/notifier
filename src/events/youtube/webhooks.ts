@@ -2,9 +2,9 @@ import XMLParser from "@nodable/flexible-xml-parser";
 import type { IRequest } from "itty-router";
 import * as v from "valibot";
 
-import type { YouTubeFeed, YouTubeSubscription, YouTubeVideo } from "@/types.d.ts";
+import type { YouTubeFeed, YouTubeVideo } from "@/types.d.ts";
 
-import { youtubeKey } from "@/kv";
+import { YouTubeSubscription } from "@/subscriptions";
 
 const webSubVerification = v.variant("hub.mode", [
   v.object({
@@ -50,10 +50,7 @@ export async function handleYouTubeVerification(
     let hubChallenge = parsed.output["hub.challenge"];
     let hubTopic = parsed.output["hub.topic"];
     let hubLease = parsed.output["hub.lease_seconds"];
-    let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
-      youtubeKey(channelId),
-      { type: "json" },
-    );
+    let sub = await YouTubeSubscription.get(channelId);
     let isKnown = !!sub;
     let isSubscribe = hubMode === "subscribe";
     let isUnsubscribe = hubMode === "unsubscribe";
@@ -63,7 +60,7 @@ export async function handleYouTubeVerification(
     if (isAccepted) {
       if (isSubscribe && sub) {
         sub.lastVerifiedAt = new Date().toISOString();
-        await env.SUBSCRIPTIONS.put(youtubeKey(channelId), JSON.stringify(sub));
+        await YouTubeSubscription.save(sub);
       }
 
       console.log({
