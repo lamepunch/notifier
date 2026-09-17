@@ -7,10 +7,10 @@ import type {
 } from "./types.d.ts";
 
 import {
-  handleWebSubVerification,
-  notifyIfNewYouTubeVideo,
+  handleYouTubeVerification,
   parseYouTubeFeed,
-} from "./events/youtube";
+} from "./events/youtube/webhooks";
+import { notifyIfNewYouTubeVideo } from "./events/youtube/notifications";
 import { queue, scheduled } from "./scheduled";
 
 import admin from "./admin";
@@ -22,28 +22,18 @@ const router = AutoRouter<IRequest, [Env, ExecutionContext]>({
 
 router
   .all("/admin/*", admin.fetch)
-  .get("/webhooks/youtube", (request) => handleWebSubVerification(request))
-  .post("/webhooks/youtube", handleYouTubeFeedPost)
-  .get("/", (request) => handleWebSubVerification(request))
-  .post("*", handleWebhookPost);
+  .get("/webhooks/youtube", handleYouTubeVerification)
+  .post("/webhooks/youtube", handleYouTubeNotification)
+  .post("/webhooks/kick", handleKickNotification);
 
-async function handleYouTubeFeedPost(
+async function handleYouTubeNotification(
   request: IRequest,
-  env: Env,
+  _env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  return processYouTubeNotification(
-    await request.text(),
-    request.headers.get("Content-Type") || "",
-    ctx,
-  );
-}
+  let payload = await request.text();
+  let contentType = request.headers.get("Content-Type") || "";
 
-async function processYouTubeNotification(
-  payload: string,
-  contentType: string,
-  ctx: ExecutionContext,
-): Promise<Response> {
   console.log({
     message: "YouTube notification received",
     contentType,
@@ -64,20 +54,17 @@ async function processYouTubeNotification(
   return new Response();
 }
 
-async function handleWebhookPost(
+async function handleKickNotification(
   request: IRequest,
-  env: Env,
+  _env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
   let payload = await request.text();
   let eventType = request.headers.get("Kick-Event-Type");
-  let contentType = request.headers.get("Content-Type") || "";
 
   // @TODO: verify webhook signature
 
   let isKickLivestream = eventType === "livestream.status.updated";
-  let isYouTubeFeed =
-    contentType.includes("xml") || contentType.includes("atom");
 
   if (isKickLivestream) {
     let data = JSON.parse(payload) as LivestreamStatusUpdated;
@@ -93,19 +80,9 @@ async function handleWebhookPost(
         });
       }
     }
-
-    return new Response();
-  } else if (isYouTubeFeed) {
-    return processYouTubeNotification(payload, contentType, ctx);
-  } else {
-    console.log({
-      message: "POST request matched no handler",
-      eventType,
-      contentType,
-      payload,
-    });
-    return new Response();
   }
+
+  return new Response();
 }
 
 export default {

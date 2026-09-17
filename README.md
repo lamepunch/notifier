@@ -44,8 +44,7 @@ accepts the subscribe POST. The daily cron also re-enqueues poll jobs for
 those channels so a dropped message cannot kill the loop. The hub's later GET to
 `/webhooks/youtube` (RFC query: `hub.mode`, `hub.topic`, `hub.challenge`,
 `hub.lease_seconds`) is accepted only for a stored channel and sets
-`lastVerifiedAt`. `GET /` still accepts verification so existing origin
-callbacks keep working until they refresh.
+`lastVerifiedAt`. YouTube callbacks are accepted only at `/webhooks/youtube`.
 
 Create the Queues once before the first deploy (account-level names):
 
@@ -100,4 +99,5 @@ npm run deploy
 After deploying, the daily cron enqueues WebSub refreshes for **active**
 YouTube channels (retries until the hub accepts; first hub failure turns on
 `polling.all`) and poll watchdog jobs for channels already polling; Kick
-webhooks must be pointed at the worker URL from Kick's side.
+webhooks must be pointed at `https://notifier.grenuttag.workers.dev/webhooks/kick`
+from Kick's side. Legacy root and catch-all webhook URLs return 404.

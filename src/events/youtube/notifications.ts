@@ -1,0 +1,130 @@
+import { env } from "cloudflare:workers";
+
+import type { YouTubeSubscription, YouTubeVideo } from "../../types.d.ts";
+
+import { DISCORD_API_BASE } from "../../constants";
+import { youtubeKey, youtubeVideoSentKey } from "../../kv";
+import { setPollingFlags } from "./state";
+
+const YOUTUBE_EMBED_COLOR = 16_711_680;
+const ONE_DAY_IN_MS = 24 * 60 * 60 * 1_000;
+const VIDEO_SENT_TTL_IN_S = 7 * 24 * 60 * 60;
+
+export async function notifyIfNewYouTubeVideo(
+  video: YouTubeVideo,
+  ctx: ExecutionContext,
+  fromHub = false,
+): Promise<void> {
+  let sub = await env.SUBSCRIPTIONS.get<YouTubeSubscription>(
+    youtubeKey(video.channelId),
+    { type: "json" },
+  );
+
+  let isSubscribed: boolean = !!sub?.active;
+  // Pings also fire for edits of old videos and are retried by the
+  // hub, so "new upload" means: published recently AND not already
+  // sent (tracked in KV).
+  let publishedAt = new Date(video.published).getTime();
+  let isRecent: boolean = Date.now() - publishedAt < ONE_DAY_IN_MS;
+  let sentKey = youtubeVideoSentKey(video.videoId);
+  let hasAlreadySent: boolean =
+    isSubscribed && isRecent
+      ? (await env.SUBSCRIPTIONS.get(sentKey)) !== null
+      : false;
+  let isAccepted: boolean = isSubscribed && isRecent && !hasAlreadySent;
+
+  console.log({
+    message: isAccepted
+      ? "Video accepted, sending notification"
+      : "Video skipped",
+    videoId: video.videoId,
+    channelId: video.channelId,
+    published: video.published,
+    updated: video.updated,
+    isSubscribed,
+    isRecent,
+    hasAlreadySent,
+  });
+
+  if (isAccepted && sub) {
+    // ponytail: KV is eventually consistent, so pings landing in
+    // different colos within ~60s could double-send; a Durable
+    // Object would make this exactly-once if that ever matters.
+    await env.SUBSCRIPTIONS.put(sentKey, video.published, {
+      expirationTtl: VIDEO_SENT_TTL_IN_S,
+    });
+    let shouldClearPolling = fromHub && sub.polling?.all === true;
+    if (shouldClearPolling) {
+      let members = sub.polling?.members ?? false;
+      setPollingFlags(sub, false, members);
+      await env.SUBSCRIPTIONS.put(
+        youtubeKey(video.channelId),
+        JSON.stringify(sub),
+      );
+      console.log({
+        message: "Cleared YouTube polling after hub notification sent",
+        channelId: video.channelId,
+        videoId: video.videoId,
+      });
+    }
+    try {
+      ctx.waitUntil(processYouTubeUpload(video, sub));
+    } catch (error) {
+      console.error({
+        message: "YouTube upload processing failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+export async function processYouTubeUpload(
+  video: YouTubeVideo,
+  sub: YouTubeSubscription,
+) {
+  let { videoId, title, channelName, channelId, videoUrl } = video;
+  let channel = sub.channel ?? env.DISCORD_DEFAULT_YOUTUBE_CHANNEL;
+  let thumbnailUrl = `https://i3.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+
+  let message = {
+    content: ":new: YouTube video just uploaded!",
+    embeds: [
+      {
+        title,
+        url: videoUrl,
+        image: { url: thumbnailUrl },
+        author: {
+          name: sub.name || channelName,
+          url: sub.url || `https://www.youtube.com/channel/${channelId}`,
+          ...(sub.icon ? { icon_url: sub.icon } : {}),
+        },
+        color: YOUTUBE_EMBED_COLOR,
+      },
+    ],
+  };
+
+  console.log({
+    message: "YouTube Discord message constructed",
+    content: message,
+  });
+
+  let response = await fetch(
+    `${DISCORD_API_BASE}/channels/${channel}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bot ${env.DISCORD_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(message),
+    },
+  );
+
+  if (!response.ok) {
+    let body = await response.text();
+    console.error({
+      message: "Discord API request failed for YouTube upload",
+      body,
+    });
+  }
+}

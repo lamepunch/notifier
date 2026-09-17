@@ -13,9 +13,9 @@ import type {
 } from "./types.d.ts";
 
 import { KV_GET_BATCH_LIMIT } from "./constants";
-import { setPollingFlags } from "./events/youtube";
+import { setPollingFlags } from "./events/youtube/state";
 import { KICK_PREFIX, YOUTUBE_PREFIX, kickKey, youtubeKey } from "./kv";
-import { enqueueYouTubeSubscriptions } from "./scheduled";
+import { enqueueYouTubeSubscriptions } from "./events/youtube/subscribing";
 
 const PROVIDERS = {
   kick: { prefix: KICK_PREFIX },
