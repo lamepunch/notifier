@@ -2,25 +2,26 @@
   "name": "notifier",
   "version": "2026.9",
   "private": true,
-  "bin": {
-    "admin": "scripts/admin.ts"
+  "type": "module",
+  "engines": {
+    "node": ">=22"
   },
   "scripts": {
     "deploy": "wrangler deploy",
     "start": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
     "cf-typegen": "wrangler types",
-    "admin": "tsx scripts/admin.ts"
+    "quarry": "quarry",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "commander": "^14.0.3",
-    "tsx": "^4.21.0",
+    "miniflare": "4.20260521.0",
     "typescript": "^5.5.2",
     "wrangler": "^4.94.0"
   },
   "dependencies": {
     "@nodable/flexible-xml-parser": "^1.10.0",
-    "itty-router": "^5.0.24",
-    "valibot": "^1.5.0"
+    "stratal": "0.0.27",
+    "zod": "^4.4.3"
   }
 }

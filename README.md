@@ -4,12 +4,19 @@ Cloudflare Worker that posts Discord notifications when a subscribed Kick
 channel goes live (via Kick webhooks) or a subscribed YouTube channel uploads
 a video (via WebSub/PubSubHubbub, with Data API polling as a backup).
 
+The Worker uses Stratal modules for HTTP controllers, queue consumers, and cron
+jobs. `src/app.module.ts` is the shared application graph for the Worker and the
+Quarry CLI; CLI-only admin commands are registered in `src/quarry.ts` so they do
+not enter the Worker bundle.
+
 ## Setup
 
 ```sh
 npm install
 cp .dev.vars.example .dev.vars   # fill in DISCORD_TOKEN, ADMIN_TOKEN, YOUTUBE_TOKEN
 ```
+
+Development requires Node.js 22 or newer.
 
 Local YouTube WebSub needs a public callback. Funnel `wrangler dev` so the hub can reach you:
 
@@ -25,26 +32,32 @@ Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
 | Key | Value |
 |-----|--------|
 | `kick:{user_id}` | `{ id, slug, active, channel?, links?, mentions? }` |
-| `youtube:{channelId}` | `{ id, name, url, active, icon?, channel?, lastSubscribedAt?, lastVerifiedAt?, polling?: { all, members } }` |
+| `youtube:{channelId}` | `{ id, name, url, active, icon?, channel?, lastSubscribedAt?, lastVerifiedAt?, polling?: boolean }` |
 
-`active: false` keeps the record but skips Discord notifies. Omit `polling`
-when both flags are false; when present, both keys are set. `polling.all`
+`active: false` keeps the record but skips Discord notifies. `polling: true`
 polls public uploads via Data API `playlistItems` (uploads playlist `UC…` →
-`UU…`) as a WebSub backup. `polling.members` is stored for later and is not
-polled yet.
+`UU…`) as a WebSub backup; omitting `polling` disables it.
 
 The daily cron enqueues a WebSub refresh for **active** YouTube channels that
-have not been subscribed in the last 10 days; the queue consumer posts to the
-hub, stores `lastSubscribedAt` on success, and on the first hub failure sets
-`polling.all` and enqueues a poll job. Poll jobs run every 15 minutes while
-`polling.all` is true and share WebSub’s notify path (active + published in
-the last 24h + `youtube_video_sent:{videoId}` unset). `polling.all` clears
-when a hub feed POST is accepted and Discord is sent, not when the hub
-accepts the subscribe POST. The daily cron also re-enqueues poll jobs for
-those channels so a dropped message cannot kill the loop. The hub's later GET to
+have not been subscribed in the last 10 days. The queue consumer posts to the
+hub and stores `lastSubscribedAt` on success. A failed subscribe immediately
+enables `polling`; the every-15-minute cron then enqueues polling while the flag
+remains enabled. Polling shares WebSub's notify path (active + published in the
+last 24h + `youtube_video_sent:{videoId}` unset). `polling` clears when
+a hub feed POST is accepted and its Discord notification is scheduled, not when
+the hub accepts the subscribe POST. There are no delayed self-poll messages.
+
+Queue jobs use the framework retry policy: three retries at a fixed 60-second
+delay. Exhausted jobs are recorded by Stratal in the `SUBSCRIPTIONS` KV
+namespace for inspection and retry through Quarry. The application does not
+retry indefinitely and does not use `Retry-After` to schedule queue work.
+The hub's later GET to
 `/webhooks/youtube` (RFC query: `hub.mode`, `hub.topic`, `hub.challenge`,
 `hub.lease_seconds`) is accepted only for a stored channel and sets
 `lastVerifiedAt`. YouTube callbacks are accepted only at `/webhooks/youtube`.
+
+Queue producers dispatch through Stratal's injected senders, and the Worker
+exports Stratal directly for HTTP, queue, and scheduled events.
 
 Create the Queues once before the first deploy (account-level names):
 
@@ -66,23 +79,38 @@ Locally, run `npm start` so the Worker (and local KV/queue) are up.
 ```sh
 export NOTIFIER_ADMIN_TOKEN=...          # same value as ADMIN_TOKEN in .dev.vars
 export NOTIFIER_REMOTE_ADMIN_TOKEN=...   # same value as the production secret
-npx admin --help
-npx admin list
-npx admin list youtube
-npx admin add kick <alias> [--channel <discordId>]
-npx admin add youtube <alias>
-npx admin activate youtube <id>
-npx admin deactivate kick <id>
-npx admin resync              # enqueue WebSub subscribe for all active YouTube channels
-npx admin poll youtube <id> --all|--members|--off
-npx admin test kick <alias>   # stub
+npx quarry help admin list
+npx quarry admin list
+npx quarry admin list youtube
+npx quarry admin add kick <alias> [--channel <discordId>]
+npx quarry admin add youtube <alias>
+npx quarry admin activate youtube <id>
+npx quarry admin deactivate kick <id>
+npx quarry admin resync             # enqueue WebSub subscribe for active channels
+npx quarry admin poll youtube <id> --on|--off
+npx quarry admin test kick <alias>  # JSON no-op stub
 ```
 
 Defaults to `http://localhost:8787`. Use `--remote` for
 `https://notifier.grenuttag.workers.dev`.
 A YouTube `add` enqueues a WebSub subscribe job on the Worker.
-`npx admin poll youtube <id> --all` sets `polling.all` and enqueues a poll
-job immediately. `--members` only stores the flag. `--off` removes `polling`.
+`admin poll youtube <id> --on` enables `polling` and triggers an immediate
+poll through the Worker. `--off` removes `polling`. Admin command responses are
+emitted as JSON on stdout; validation,
+authentication, and HTTP failures return a nonzero exit code.
+
+Quarry also exposes the Stratal application inventory and failed-job tools:
+
+```sh
+npx quarry route:list --hidden    # include the hidden /admin routes
+npx quarry schedule:list
+npx quarry queue:list
+npx quarry queue:failed
+npx quarry queue:retry <id>
+```
+
+The built-in queue commands use Quarry's configured bindings, which are local
+by default. `--remote` applies only to the `admin` HTTP commands.
 
 If production is behind Cloudflare Access, the CLI must be allowed through
 (path bypass or Access service token). Worker auth is Bearer only.
@@ -97,7 +125,7 @@ npm run deploy
 ```
 
 After deploying, the daily cron enqueues WebSub refreshes for **active**
-YouTube channels (retries until the hub accepts; first hub failure turns on
-`polling.all`) and poll watchdog jobs for channels already polling; Kick
+YouTube channels and the 15-minute cron enqueues work for channels already
+polling; Kick
 webhooks must be pointed at `https://notifier.grenuttag.workers.dev/webhooks/kick`
 from Kick's side. Legacy root and catch-all webhook URLs return 404.
