@@ -47,6 +47,27 @@ If the application uses Durable Objects or Workflows, refer to the relevant best
 - Durable Objects: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
 - Workflows: https://developers.cloudflare.com/workflows/build/rules-of-workflows/
 
+# Stratal
+
+Before modifying code that uses Stratal, retrieve and follow the applicable
+Stratal guidance. Read the Stratal skill first:
+
+- `/Users/grenuttag/.agents/skills/stratal/SKILL.md`
+
+Then read the relevant reference before changing the associated area:
+
+- DI, services, or providers: `references/modules-and-di.md`
+- Controllers, routes, or OpenAPI metadata: `references/routing.md`
+- Middleware or guards: `references/middleware-and-guards.md`
+- Queues or cron jobs: `references/queues-and-cron.md`
+- Logging or runtime infrastructure: `references/infrastructure.md`
+- SSR or Inertia: `references/inertia.md`
+- Errors or validation: `references/errors-and-i18n.md`
+
+Do not rely on pre-trained Stratal knowledge when the installed package or
+project reference disagrees. Use the installed Stratal version as the source
+of truth, and validate changes with the existing typecheck/build commands.
+
 # Commands
 
 | Command | Purpose |
