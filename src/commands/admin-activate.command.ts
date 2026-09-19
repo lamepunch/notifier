@@ -12,7 +12,7 @@ export class AdminActivateCommand extends AdminCommand {
     const provider = this.provider();
     if (!provider) return 1;
     return this.runRequest(
-      `/admin/subscriptions/${provider}/${encodeURIComponent(this.string("id"))}/activate`,
+      `/admin/subscriptions/${provider}/${encodeURIComponent(this.string("id"))}/status/activate`,
       { method: "POST" },
     );
   }

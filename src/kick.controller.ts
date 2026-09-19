@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { inject } from "stratal/di";
+import { LOGGER_TOKENS } from "stratal/logger";
+import type { LoggerService } from "stratal/logger";
 import { Controller, Post, type RouterContext } from "stratal/router";
 
 import type { LivestreamStatusUpdated, Subscription } from "@/types";
@@ -14,6 +16,7 @@ export class KickWebhooksController {
   constructor(
     @inject(DiscordService) private readonly discord: DiscordService,
     @inject(SubscriptionsService) private readonly subscriptions: SubscriptionsService,
+    @inject(LOGGER_TOKENS.LoggerService) private readonly logger: LoggerService,
   ) {}
 
   @Post("/")
@@ -38,8 +41,7 @@ export class KickWebhooksController {
 
     // If sub doesn't exist or is inactive, stop processing webhook early
     if (!sub || !sub.active) {
-      console.log({
-        message: "Unknown or inactive Kick subscription received",
+      this.logger.info("Unknown or inactive Kick subscription received", {
         userId,
       });
 
@@ -84,7 +86,7 @@ export class KickWebhooksController {
       ],
     };
 
-    console.log({ message: "Discord message constructed", content: message });
+    this.logger.info("Discord message constructed", { content: message });
 
     await this.discord.sendMessage(channel, message);
   }

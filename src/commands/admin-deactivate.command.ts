@@ -12,7 +12,7 @@ export class AdminDeactivateCommand extends AdminCommand {
     const provider = this.provider();
     if (!provider) return 1;
     return this.runRequest(
-      `/admin/subscriptions/${provider}/${encodeURIComponent(this.string("id"))}/deactivate`,
+      `/admin/subscriptions/${provider}/${encodeURIComponent(this.string("id"))}/status/deactivate`,
       { method: "POST" },
     );
   }

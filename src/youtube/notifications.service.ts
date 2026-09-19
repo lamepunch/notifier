@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { Transient, inject } from "stratal/di";
+import { LOGGER_TOKENS } from "stratal/logger";
+import type { LoggerService } from "stratal/logger";
 
 import type { YouTubeSubscription, YouTubeVideo } from "@/types/youtube";
 
@@ -16,6 +18,7 @@ export class YouTubeNotificationService {
   constructor(
     @inject(DiscordService) private readonly discord: DiscordService,
     @inject(SubscriptionsService) private readonly subscriptions: SubscriptionsService,
+    @inject(LOGGER_TOKENS.LoggerService) private readonly logger: LoggerService,
   ) {}
 
   async notifyIfNewYouTubeVideo(
@@ -38,10 +41,7 @@ export class YouTubeNotificationService {
         : false;
     let isAccepted: boolean = isSubscribed && isRecent && !hasAlreadySent;
 
-    console.log({
-      message: isAccepted
-        ? "Video accepted, sending notification"
-        : "Video skipped",
+    this.logger.info(isAccepted ? "Video accepted, sending notification" : "Video skipped", {
       videoId: video.videoId,
       channelId: video.channelId,
       published: video.published,
@@ -62,8 +62,7 @@ export class YouTubeNotificationService {
       if (shouldClearPolling) {
         delete sub.polling;
         await this.subscriptions.save("youtube", sub);
-        console.log({
-          message: "Cleared YouTube polling after hub notification sent",
+        this.logger.info("Cleared YouTube polling after hub notification sent", {
           channelId: video.channelId,
           videoId: video.videoId,
         });
@@ -71,8 +70,7 @@ export class YouTubeNotificationService {
       try {
         ctx.waitUntil(this.processYouTubeUpload(video, sub));
       } catch (error) {
-        console.error({
-          message: "YouTube upload processing failed",
+        this.logger.error("YouTube upload processing failed", {
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -104,8 +102,7 @@ export class YouTubeNotificationService {
       ],
     };
 
-    console.log({
-      message: "YouTube Discord message constructed",
+    this.logger.info("YouTube Discord message constructed", {
       content: message,
     });
 

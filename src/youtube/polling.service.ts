@@ -16,7 +16,7 @@ export class YouTubePollingService {
     if (!env.YOUTUBE_TOKEN) throw new Error("YOUTUBE_TOKEN is not set");
     let params = new URLSearchParams({
       part: "snippet,contentDetails",
-      maxResults: "10",
+      maxResults: "3",
       playlistId: `UU${channelId.slice(2)}`,
       key: env.YOUTUBE_TOKEN,
     });
