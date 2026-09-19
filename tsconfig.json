@@ -11,13 +11,15 @@
 
     /* Specify what module code is generated. */
     "module": "es2022",
+
     /* Specify how TypeScript looks up a file from a given module specifier. */
     "moduleResolution": "Bundler",
+
     /* Map `@/` to `src/` so nested files can import without `../..`. */
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },
+
     /* Enable importing .json files */
     "resolveJsonModule": true,
 
@@ -38,6 +40,8 @@
 
     /* Enable all strict type-checking options. */
     "strict": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
 
     /* Skip type checking all .d.ts files. */
     "skipLibCheck": true,

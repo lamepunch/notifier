@@ -44,16 +44,16 @@
     "required": ["DISCORD_TOKEN", "ADMIN_TOKEN", "YOUTUBE_TOKEN"],
   },
   "triggers": {
-    "crons": ["0 0 * * *"],
+    "crons": ["0 0 * * *", "*/15 * * * *"],
   },
   "queues": {
     "producers": [
       {
-        "binding": "YOUTUBE_SUBSCRIBE",
+        "binding": "websub",
         "queue": "notifier-youtube-websub",
       },
       {
-        "binding": "YOUTUBE_POLL",
+        "binding": "poll",
         "queue": "notifier-youtube-poll",
       },
     ],
@@ -62,14 +62,14 @@
         "queue": "notifier-youtube-websub",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
-        "max_retries": 100,
+        "max_retries": 3,
         "retry_delay": 60,
       },
       {
         "queue": "notifier-youtube-poll",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
-        "max_retries": 100,
+        "max_retries": 3,
         "retry_delay": 60,
       },
     ],

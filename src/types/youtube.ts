@@ -1,33 +1,3 @@
-export interface LivestreamStatusUpdated {
-  broadcaster: {
-    is_anonymous: boolean;
-    user_id: number;
-    username: string;
-    is_verified: boolean | null;
-    profile_picture: string;
-    channel_slug: string;
-    identity: unknown;
-  };
-  is_live: boolean;
-  title: string;
-  started_at: string;
-  ended_at: string | null;
-}
-
-export interface Subscription {
-  id: number;
-  slug: string;
-  active: boolean;
-  channel?: string;
-  links?: Record<string, string>;
-  mentions?: string[];
-}
-
-export interface YouTubePolling {
-  all: boolean;
-  members: boolean;
-}
-
 export interface YouTubeSubscription {
   id: string;
   name: string;
@@ -37,7 +7,12 @@ export interface YouTubeSubscription {
   channel?: string;
   lastSubscribedAt?: string;
   lastVerifiedAt?: string;
-  polling?: YouTubePolling;
+  polling?: boolean;
+}
+
+export interface YouTubeLookup {
+  provider: "youtube";
+  record: YouTubeSubscription;
 }
 
 export interface YouTubeVideo {
@@ -63,7 +38,7 @@ export interface YouTubeFeed {
   feed?: { entry?: YouTubeFeedEntry | YouTubeFeedEntry[] };
 }
 
-export interface YouTubeSubscribeJob {
+export interface WebSubJob {
   channelId: string;
 }
 
@@ -89,20 +64,6 @@ export interface YouTubePlaylistItemsResponse {
   items?: YouTubePlaylistItem[];
 }
 
-export type Provider = "kick" | "youtube";
-
-export interface KickLookup {
-  provider: "kick";
-  record: Subscription;
-}
-
-export interface YouTubeLookup {
-  provider: "youtube";
-  record: YouTubeSubscription;
-}
-
-export type LookupResult = KickLookup | YouTubeLookup;
-
 export interface YouTubeTarget {
   id?: string;
   handle?: string;
@@ -127,9 +88,4 @@ export interface YouTubeChannelListItem {
 
 export interface YouTubeChannelListResponse {
   items?: YouTubeChannelListItem[];
-}
-
-export interface KickChannelResponse {
-  user_id?: number;
-  slug?: string;
 }
