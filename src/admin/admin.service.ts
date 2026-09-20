@@ -1,5 +1,5 @@
-import { env } from "cloudflare:workers";
-import { inject, Transient } from "stratal/di";
+import { DI_TOKENS, inject, Transient } from "stratal/di";
+import type { StratalEnv } from "stratal";
 import type {
   YouTubeChannelListResponse,
   YouTubeTarget,
@@ -24,6 +24,7 @@ const YOUTUBE_ID_RE = /^UC[\w-]{22}$/;
 @Transient()
 export class AdminService {
   constructor(
+    @inject(DI_TOKENS.CloudflareEnv) private readonly env: StratalEnv,
     @inject(DailyYouTubeRefreshJob)
     private readonly refreshJob: DailyYouTubeRefreshJob,
     @inject(YouTubePollEnqueueJob)
@@ -53,7 +54,7 @@ export class AdminService {
   }
 
   async resyncYouTube() {
-    if (!env.SERVICE_URL) throw new HttpException(500, "SERVICE_URL is not set");
+    if (!this.env.SERVICE_URL) throw new HttpException(500, "SERVICE_URL is not set");
     return {
       message: "YouTube WebSub jobs enqueued",
       ...(await this.refreshJob.enqueueSubscriptions(true)),
@@ -61,7 +62,7 @@ export class AdminService {
   }
 
   async add(provider: string, alias: string, channel?: string) {
-    let found = await lookupByAlias(requireProvider(provider), alias);
+    let found = await lookupByAlias(requireProvider(provider), alias, this.env.YOUTUBE_TOKEN);
     let written = await upsert(found, channel, this.subscriptions);
     if (found.provider === "youtube") {
       await this.refreshJob.subscribe(found.record.id);
@@ -117,10 +118,14 @@ function requireYouTubeId(id: string) {
     throw new HttpException(400, "id must be a YouTube channel id");
 }
 
-async function lookupByAlias(provider: Provider, alias: string): Promise<LookupResult> {
+async function lookupByAlias(
+  provider: Provider,
+  alias: string,
+  youtubeToken?: string,
+): Promise<LookupResult> {
   return provider === "kick"
     ? { provider, record: await lookupKick(alias) }
-    : { provider, record: await lookupYouTube(alias) };
+    : { provider, record: await lookupYouTube(alias, youtubeToken) };
 }
 
 async function upsert(
@@ -189,10 +194,10 @@ function parseYouTubeAlias(alias: string): YouTubeTarget {
   return { handle: value };
 }
 
-async function lookupYouTube(alias: string): Promise<YouTubeRecord> {
-  if (!env.YOUTUBE_TOKEN) throw new HttpException(500, "YOUTUBE_TOKEN is not set");
+async function lookupYouTube(alias: string, youtubeToken?: string): Promise<YouTubeRecord> {
+  if (!youtubeToken) throw new HttpException(500, "YOUTUBE_TOKEN is not set");
   let target = parseYouTubeAlias(alias);
-  let params = new URLSearchParams({ part: "snippet", key: env.YOUTUBE_TOKEN });
+  let params = new URLSearchParams({ part: "snippet", key: youtubeToken });
   if (target.id) params.set("id", target.id);
   else if (target.handle) params.set("forHandle", target.handle);
   let url = `https://www.googleapis.com/youtube/v3/channels?${params}`;

@@ -1,5 +1,5 @@
-import { env } from "cloudflare:workers";
-import { Transient } from "stratal/di";
+import { DI_TOKENS, Transient, inject } from "stratal/di";
+import type { StratalEnv } from "stratal";
 
 import type {
   YouTubePlaylistItem,
@@ -12,13 +12,15 @@ const YOUTUBE_PLAYLIST_ITEMS_URL =
 
 @Transient()
 export class YouTubePollingService {
+  constructor(@inject(DI_TOKENS.CloudflareEnv) private readonly env: StratalEnv) {}
+
   async fetchUploadsPlaylistVideos(channelId: string): Promise<YouTubeVideo[]> {
-    if (!env.YOUTUBE_TOKEN) throw new Error("YOUTUBE_TOKEN is not set");
+    if (!this.env.YOUTUBE_TOKEN) throw new Error("YOUTUBE_TOKEN is not set");
     let params = new URLSearchParams({
       part: "snippet,contentDetails",
       maxResults: "3",
       playlistId: `UU${channelId.slice(2)}`,
-      key: env.YOUTUBE_TOKEN,
+      key: this.env.YOUTUBE_TOKEN,
     });
     let response = await fetch(`${YOUTUBE_PLAYLIST_ITEMS_URL}?${params}`, {
       headers: { Accept: "application/json" },

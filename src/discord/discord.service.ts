@@ -1,21 +1,33 @@
-import { env } from "cloudflare:workers";
-import { Transient, inject } from "stratal/di";
+import { DI_TOKENS, Transient, inject } from "stratal/di";
+import type { StratalEnv } from "stratal";
 import { LOGGER_TOKENS } from "stratal/logger";
 import type { LoggerService } from "stratal/logger";
+
+import type { Provider } from "@/types";
 
 @Transient()
 export class DiscordService {
   constructor(
+    @inject(DI_TOKENS.CloudflareEnv) private readonly env: StratalEnv,
     @inject(LOGGER_TOKENS.LoggerService) private readonly logger: LoggerService,
   ) {}
 
-  async sendMessage(channelId: string, message: unknown): Promise<void> {
+  async sendMessage(provider: Provider, message: unknown, channelId?: string): Promise<void> {
+    let resolvedChannelId =
+      channelId ??
+      (provider === "kick"
+        ? this.env.DISCORD_DEFAULT_CHANNEL
+        : this.env.DISCORD_DEFAULT_YOUTUBE_CHANNEL);
+    if (!resolvedChannelId) {
+      throw new Error(`No Discord channel configured for ${provider}`);
+    }
+
     let response = await fetch(
-      `https://discord.com/api/v10/channels/${channelId}/messages`,
+      `https://discord.com/api/v10/channels/${resolvedChannelId}/messages`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bot ${env.DISCORD_TOKEN}`,
+          Authorization: `Bot ${this.env.DISCORD_TOKEN}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(message),
@@ -24,7 +36,7 @@ export class DiscordService {
 
     if (!response.ok) {
       this.logger.error("Discord API request failed", {
-        channelId,
+        channelId: resolvedChannelId,
         body: await response.text(),
       });
     }

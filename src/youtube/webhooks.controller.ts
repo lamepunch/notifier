@@ -31,7 +31,7 @@ export class YouTubeWebhooksController {
 
   @Post("/")
   async notify(ctx: RouterContext): Promise<Response> {
-    return this.webSub.notify(ctx);
+    return this.webSub.notify(ctx, true);
   }
 }
 
@@ -58,6 +58,6 @@ export class WebSubFallbackController {
 
   @Post("/")
   async notify(ctx: RouterContext): Promise<Response> {
-    return this.webSub.notify(ctx);
+    return this.webSub.notify(ctx, false);
   }
 }

@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 import { inject } from "stratal/di";
 import { LOGGER_TOKENS } from "stratal/logger";
 import type { LoggerService } from "stratal/logger";
@@ -50,10 +49,6 @@ export class KickWebhooksController {
 
     let { channel, links, mentions } = sub;
 
-    if (!channel) {
-      channel = env.DISCORD_DEFAULT_CHANNEL;
-    }
-
     let description = `:link: [Kick](${url})`;
     if (links) {
       description +=
@@ -88,6 +83,6 @@ export class KickWebhooksController {
 
     this.logger.info("Discord message constructed", { content: message });
 
-    await this.discord.sendMessage(channel, message);
+    await this.discord.sendMessage("kick", message, channel);
   }
 }

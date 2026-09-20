@@ -33,7 +33,9 @@ export class DailyYouTubeRefreshJob implements CronJob {
   async enqueueSubscriptions(
     force = false,
   ): Promise<{ count: number; skipped: number; active: number }> {
-    let active = (await this.stores.list<YouTubeSubscription>("youtube")).filter((sub) => sub.active);
+    let active = (await this.stores.list<YouTubeSubscription>("youtube")).filter(
+      (sub) => sub.active,
+    );
     let selected = force
       ? active
       : active.filter((sub) => {

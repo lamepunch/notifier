@@ -1,30 +1,46 @@
-import { env } from "cloudflare:workers";
-import { Singleton } from "stratal/di";
+import { DI_TOKENS, Singleton, inject } from "stratal/di";
+import type { StratalEnv } from "stratal";
 
 import type { Subscription } from "@/types";
 import type { YouTubeSubscription } from "@/types/youtube";
-import { KICK_PREFIX, YOUTUBE_PREFIX } from "@/kv";
+import { KICK_PREFIX, YOUTUBE_PREFIX, youtubeVideoSentKey } from "@/kv";
 import type { Provider } from "@/types";
+
+const VIDEO_SENT_TTL_IN_S = 7 * 24 * 60 * 60;
 
 @Singleton()
 export class SubscriptionsService {
+  constructor(@inject(DI_TOKENS.CloudflareEnv) private readonly env: StratalEnv) {}
+
   key(provider: Provider, id: string | number): string {
     return `${this.prefix(provider)}${id}`;
   }
 
   get<T>(provider: Provider, id: string | number): Promise<T | null> {
-    return env.SUBSCRIPTIONS.get<T>(this.key(provider, id), { type: "json" });
+    return this.env.SUBSCRIPTIONS.get<T>(this.key(provider, id), { type: "json" });
   }
 
   save<T extends { id: string | number }>(provider: Provider, record: T): Promise<void> {
-    return env.SUBSCRIPTIONS.put(this.key(provider, record.id), JSON.stringify(record));
+    return this.env.SUBSCRIPTIONS.put(this.key(provider, record.id), JSON.stringify(record));
+  }
+
+  hasSentYouTubeVideo(videoId: string): Promise<boolean> {
+    return this.env.SUBSCRIPTIONS.get(youtubeVideoSentKey(videoId)).then(
+      (value) => value !== null,
+    );
+  }
+
+  markYouTubeVideoSent(videoId: string, published: string): Promise<void> {
+    return this.env.SUBSCRIPTIONS.put(youtubeVideoSentKey(videoId), published, {
+      expirationTtl: VIDEO_SENT_TTL_IN_S,
+    });
   }
 
   async list<T>(provider: Provider): Promise<T[]> {
     let prefix = this.prefix(provider);
     // Subscription counts are intentionally small; one page keeps this repository simple.
-    let page = await env.SUBSCRIPTIONS.list({ prefix, limit: 100 });
-    let values = await env.SUBSCRIPTIONS.get<T>(
+    let page = await this.env.SUBSCRIPTIONS.list({ prefix, limit: 100 });
+    let values = await this.env.SUBSCRIPTIONS.get<T>(
       page.keys.map((entry) => entry.name),
       { type: "json" },
     );

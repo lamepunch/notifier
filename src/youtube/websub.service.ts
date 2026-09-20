@@ -34,6 +34,7 @@ export class WebSubService {
       sub.lastVerifiedAt = new Date().toISOString();
       await this.subscriptions.save("youtube", sub);
     }
+
     return ctx.text(challenge);
   }
 
@@ -45,11 +46,13 @@ export class WebSubService {
       "hub.lease_seconds": String(864_000),
       "hub.verify": "async",
     });
+
     let response = await fetch("https://pubsubhubbub.appspot.com/subscribe", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
     });
+
     if (!response.ok) {
       throw new Error(
         `YouTube WebSub subscription failed: ${response.status} ${await response.text()}`,
@@ -57,10 +60,14 @@ export class WebSubService {
     }
   }
 
-  async notify(ctx: RouterContext): Promise<Response> {
+  async notify(ctx: RouterContext, clearPolling: boolean): Promise<Response> {
     let videos = this.parseYouTubeFeed(await ctx.c.req.text());
     for (let video of videos) {
-      await this.notifications.notifyIfNewYouTubeVideo(video, ctx.c.executionCtx, true);
+      await this.notifications.notifyIfNewYouTubeVideo(
+        video,
+        ctx.c.executionCtx,
+        clearPolling,
+      );
     }
     return ctx.c.body(null, 200);
   }
