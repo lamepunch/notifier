@@ -1,6 +1,8 @@
 import XMLParser from "@nodable/flexible-xml-parser";
 import { Singleton, inject } from "stratal/di";
 import { HttpException } from "stratal/errors";
+import { LOGGER_TOKENS } from "stratal/logger";
+import type { LoggerService } from "stratal/logger";
 import type { RouterContext } from "stratal/router";
 
 import type { YouTubeFeed, YouTubeSubscription, YouTubeVideo } from "@/types/youtube";
@@ -14,12 +16,18 @@ export class WebSubService {
     private readonly subscriptions: SubscriptionsService,
     @inject(YouTubeNotificationService)
     private readonly notifications: YouTubeNotificationService,
+    @inject(LOGGER_TOKENS.LoggerService)
+    private readonly logger: LoggerService,
   ) {}
 
   async verify(ctx: RouterContext): Promise<Response> {
     let mode = ctx.query("hub.mode");
     let topic = ctx.query("hub.topic");
     let challenge = ctx.query("hub.challenge");
+    this.logger.info("YouTube WebSub verification request received", {
+      mode,
+      topic,
+    });
     if (!mode || !topic || !challenge) {
       throw new HttpException(404, "Not found");
     }
@@ -29,12 +37,26 @@ export class WebSubService {
 
     let sub = await this.subscriptions.get<YouTubeSubscription>("youtube", channelId);
     let subscribing = mode === "subscribe";
-    if (subscribing !== !!sub) throw new HttpException(404, "Unknown subscription");
+    this.logger.info("YouTube WebSub verification subscription lookup", {
+      channelId,
+      mode,
+      isKnownSubscription: !!sub,
+    });
+    if (subscribing !== !!sub) {
+      this.logger.warn("YouTube WebSub verification rejected", {
+        channelId,
+        mode,
+        challenge,
+        isKnownSubscription: !!sub,
+      });
+      throw new HttpException(404, "Unknown subscription");
+    }
     if (subscribing && sub) {
       sub.lastVerifiedAt = new Date().toISOString();
       await this.subscriptions.save("youtube", sub);
     }
 
+    this.logger.info("YouTube WebSub verification accepted", { channelId, mode });
     return ctx.text(challenge);
   }
 

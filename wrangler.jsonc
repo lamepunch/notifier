@@ -40,8 +40,12 @@
   },
   "kv_namespaces": [
     {
-      "binding": "SUBSCRIPTIONS",
+      "binding": "subs",
       "id": "e63f654438284b74afc969cbb88819e7",
+    },
+    {
+      "binding": "queue",
+      "id": "dab2aa299bb14bbfb68327ebc7d4b9ba",
     },
   ],
   "secrets": {

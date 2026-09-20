@@ -1,4 +1,6 @@
 import { DI_TOKENS, Transient, inject } from "stratal/di";
+import { LOGGER_TOKENS } from "stratal/logger";
+import type { LoggerService } from "stratal/logger";
 import type { StratalEnv } from "stratal";
 import { InjectQueue } from "stratal/queue";
 import type { IQueueConsumer, IQueueSender, QueueMessage } from "stratal/queue";
@@ -17,6 +19,8 @@ export class WebSubConsumer implements IQueueConsumer<WebSubJob> {
     private readonly subscriptions: SubscriptionsService,
     @inject(WebSubService)
     private readonly webSub: WebSubService,
+    @inject(LOGGER_TOKENS.LoggerService)
+    private readonly logger: LoggerService,
   ) {}
 
   async handle(message: QueueMessage<WebSubJob>) {
@@ -36,6 +40,10 @@ export class WebSubConsumer implements IQueueConsumer<WebSubJob> {
       if (sub.polling !== true) {
         sub.polling = true;
         await this.subscriptions.save("youtube", sub);
+        this.logger.info("YouTube polling channel queued", {
+          channelId,
+          source: "fallback",
+        });
         await this.poll.dispatch({
           type: "youtube.poll",
           payload: { channelId },

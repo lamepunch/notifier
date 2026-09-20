@@ -27,7 +27,7 @@ npm start
 
 `npm start` passes `--var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net`, which overrides the workers.dev URL in `wrangler.jsonc`. Deploy still uses the production value. The hub callback is `SERVICE_URL/webhooks/youtube`.
 
-Subscriptions live as individual keys in the `SUBSCRIPTIONS` KV namespace:
+Subscriptions live as individual keys in the `subs` KV namespace:
 
 | Key | Value |
 |-----|--------|
@@ -48,7 +48,7 @@ a hub feed POST is accepted and its Discord notification is scheduled, not when
 the hub accepts the subscribe POST. There are no delayed self-poll messages.
 
 Queue jobs use the framework retry policy: three retries at a fixed 60-second
-delay. Exhausted jobs are recorded by Stratal in the `SUBSCRIPTIONS` KV
+delay. Exhausted jobs are recorded by Stratal in the `queue` KV
 namespace for inspection and retry through Quarry. The application does not
 retry indefinitely and does not use `Retry-After` to schedule queue work.
 The hub's later GET to

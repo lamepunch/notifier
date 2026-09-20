@@ -17,21 +17,21 @@ export class SubscriptionsService {
   }
 
   get<T>(provider: Provider, id: string | number): Promise<T | null> {
-    return this.env.SUBSCRIPTIONS.get<T>(this.key(provider, id), { type: "json" });
+    return this.env.subs.get<T>(this.key(provider, id), { type: "json" });
   }
 
   save<T extends { id: string | number }>(provider: Provider, record: T): Promise<void> {
-    return this.env.SUBSCRIPTIONS.put(this.key(provider, record.id), JSON.stringify(record));
+    return this.env.subs.put(this.key(provider, record.id), JSON.stringify(record));
   }
 
   hasSentYouTubeVideo(videoId: string): Promise<boolean> {
-    return this.env.SUBSCRIPTIONS.get(youtubeVideoSentKey(videoId)).then(
+    return this.env.subs.get(youtubeVideoSentKey(videoId)).then(
       (value) => value !== null,
     );
   }
 
   markYouTubeVideoSent(videoId: string, published: string): Promise<void> {
-    return this.env.SUBSCRIPTIONS.put(youtubeVideoSentKey(videoId), published, {
+    return this.env.subs.put(youtubeVideoSentKey(videoId), published, {
       expirationTtl: VIDEO_SENT_TTL_IN_S,
     });
   }
@@ -39,8 +39,8 @@ export class SubscriptionsService {
   async list<T>(provider: Provider): Promise<T[]> {
     let prefix = this.prefix(provider);
     // Subscription counts are intentionally small; one page keeps this repository simple.
-    let page = await this.env.SUBSCRIPTIONS.list({ prefix, limit: 100 });
-    let values = await this.env.SUBSCRIPTIONS.get<T>(
+    let page = await this.env.subs.list({ prefix, limit: 100 });
+    let values = await this.env.subs.get<T>(
       page.keys.map((entry) => entry.name),
       { type: "json" },
     );

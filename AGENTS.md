@@ -83,7 +83,7 @@ No test or lint scripts are configured.
 
 Cloudflare Worker (`src/index.ts`) posts Discord messages for Kick go-live webhooks and YouTube WebSub upload pings.
 
-Subscriptions are one KV key per channel in `SUBSCRIPTIONS`:
+Subscriptions are one KV key per channel in `subs`:
 
 - Kick: `kick:{user_id}` → `{ id, slug, active, channel?, links?, mentions? }`
 - YouTube: `youtube:{channelId}` → `{ id, name, url, active, icon?, channel?, lastSubscribedAt?, lastVerifiedAt?, polling?: boolean }`

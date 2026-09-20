@@ -13,7 +13,7 @@ import { SubscriptionsService } from "@/subscriptions";
       inject: [],
       useFactory: () => ({
         provider: "cloudflare",
-        store: { binding: "SUBSCRIPTIONS" },
+        store: { binding: "queue" },
         maxRetries: 3,
       }),
     }),
