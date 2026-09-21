@@ -12,7 +12,7 @@ import { SubscriptionsService } from "@/subscriptions";
  */
 @Transient()
 export class YouTubePollEnqueueJob implements CronJob {
-  static schedule = "*/15 * * * *";
+  static schedule = "0 * * * *";
 
   constructor(
     @InjectQueue("poll") private readonly polls: IQueueSender,

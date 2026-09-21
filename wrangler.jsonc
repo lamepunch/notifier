@@ -52,7 +52,7 @@
     "required": ["DISCORD_TOKEN", "ADMIN_TOKEN", "YOUTUBE_TOKEN"],
   },
   "triggers": {
-    "crons": ["0 0 * * *", "*/15 * * * *"],
+    "crons": ["0 0 * * *", "0 * * * *"],
   },
   "queues": {
     "producers": [
