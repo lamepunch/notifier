@@ -10,7 +10,6 @@
     "deploy": "wrangler deploy",
     "start": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
     "cf-typegen": "wrangler types",
-    "quarry": "quarry",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

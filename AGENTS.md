@@ -75,7 +75,6 @@ of truth, and validate changes with the existing typecheck/build commands.
 | `npm start` | Local dev server (wrangler dev) on http://localhost:8787 |
 | `npm run deploy` | Deploy to Cloudflare |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after binding/var/secret changes |
-| `npx quarry admin <cmd>` | HTTP client for the Worker admin routes; requires a running Worker and local admin token |
 
 No test or lint scripts are configured.
 
