@@ -41,7 +41,7 @@ polls public uploads via Data API `playlistItems` (uploads playlist `UC…` →
 The daily cron enqueues a WebSub refresh for **active** YouTube channels that
 have not been subscribed in the last 10 days. The queue consumer posts to the
 hub and stores `lastSubscribedAt` on success. A failed subscribe immediately
-enables `polling`; the every-15-minute cron then enqueues polling while the flag
+enables `polling`; the hourly cron then enqueues polling while the flag
 remains enabled. Polling shares WebSub's notify path (active + published in the
 last 24h + `youtube_video_sent:{videoId}` unset). `polling` clears when
 a hub feed POST is accepted and its Discord notification is scheduled, not when
