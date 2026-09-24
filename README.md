@@ -40,16 +40,16 @@ polls public uploads via Data API `playlistItems` (uploads playlist `UC…` →
 The daily cron enqueues a WebSub refresh for **active** YouTube channels that
 have not been subscribed in the last 10 days. The queue consumer posts to the
 hub and stores `lastSubscribedAt` on success. A failed subscribe immediately
-enables `polling`; the hourly cron then enqueues polling while the flag
-remains enabled. Polling shares WebSub's notify path (active + published in the
+enables `polling`; the poll cron then enqueues polling hourly from 8 AM to
+11 PM ET (9 AM to midnight during daylight saving time) while the flag remains
+enabled. Polling shares WebSub's notify path (active + published in the
 last 24h + `youtube_video_sent:{videoId}` unset). `polling` clears when
-a hub feed POST is accepted and its Discord notification is scheduled, not when
-the hub accepts the subscribe POST. There are no delayed self-poll messages.
+the hub sends a feed POST for an active subscription, not when the hub accepts
+the subscribe POST. There are no delayed self-poll messages.
 
 Queue jobs use the framework retry policy: three retries at a fixed 60-second
 delay. Exhausted jobs are recorded by Stratal in the `queue` KV
-namespace for inspection and retry through Quarry. The application does not
-retry indefinitely and does not use `Retry-After` to schedule queue work.
+namespace for inspection and retry through Quarry.
 The hub's later GET to
 `/webhooks/youtube` (RFC query: `hub.mode`, `hub.topic`, `hub.challenge`,
 `hub.lease_seconds`) is accepted only for a stored channel and sets
@@ -90,7 +90,7 @@ npm run deploy
 ```
 
 After deploying, the daily cron enqueues WebSub refreshes for **active**
-YouTube channels and the hourly cron enqueues work for channels already
+YouTube channels and the poll cron enqueues work for channels already
 polling; Kick
 webhooks must be pointed at `https://notifier.grenuttag.workers.dev/webhooks/kick`
 from Kick's side. Legacy root and catch-all webhook URLs return 404.

@@ -26,6 +26,17 @@ export class YouTubeNotificationService {
     let sub = await this.subscriptions.get<YouTubeSubscription>("youtube", video.channelId);
 
     let isSubscribed: boolean = !!sub?.active;
+
+    // Clear polling on any hub notification for an active subscription.
+    if (clearPolling && isSubscribed && sub?.polling === true) {
+      delete sub.polling;
+      await this.subscriptions.save("youtube", sub);
+      this.logger.info("Cleared YouTube polling after hub notification", {
+        channelId: video.channelId,
+        videoId: video.videoId,
+      });
+    }
+
     // Pings also fire for edits of old videos and are retried by the
     // hub, so "new upload" means: published recently AND not already
     // sent (tracked in KV).
@@ -52,15 +63,6 @@ export class YouTubeNotificationService {
       // different colos within ~60s could double-send; a Durable
       // Object would make this exactly-once if that ever matters.
       await this.subscriptions.markYouTubeVideoSent(video.videoId, video.published);
-      let shouldClearPolling = clearPolling && sub.polling === true;
-      if (shouldClearPolling) {
-        delete sub.polling;
-        await this.subscriptions.save("youtube", sub);
-        this.logger.info("Cleared YouTube polling after hub notification sent", {
-          channelId: video.channelId,
-          videoId: video.videoId,
-        });
-      }
       try {
         ctx.waitUntil(this.processYouTubeUpload(video, sub));
       } catch (error) {

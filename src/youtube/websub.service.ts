@@ -20,14 +20,23 @@ export class WebSubService {
     private readonly logger: LoggerService,
   ) {}
 
+  /**
+   * Handle a WebSub verification request to ensure that a subscription request was
+   * actually valid and wanted from the subscriber.
+   *
+   * [Hub Verifies Intent of the Subscriber](https://pubsubhubbub.github.io/PubSubHubbub/pubsubhubbub-core-0.4.html#verifysub)
+   */
   async verify(ctx: RouterContext): Promise<Response> {
     let mode = ctx.query("hub.mode");
     let topic = ctx.query("hub.topic");
     let challenge = ctx.query("hub.challenge");
+
     this.logger.info("YouTube WebSub verification request received", {
       mode,
       topic,
     });
+
+    // Give up if we can't find any of these in the querystring
     if (!mode || !topic || !challenge) {
       throw new HttpException(404, "Not found");
     }
@@ -42,6 +51,8 @@ export class WebSubService {
       mode,
       isKnownSubscription: !!sub,
     });
+
+    // This subscription doesn't exist, reject it per the WebSub spec
     if (subscribing !== !!sub) {
       this.logger.warn("YouTube WebSub verification rejected", {
         channelId,
@@ -51,6 +62,7 @@ export class WebSubService {
       });
       throw new HttpException(404, "Unknown subscription");
     }
+
     if (subscribing && sub) {
       sub.lastVerifiedAt = new Date().toISOString();
       await this.subscriptions.save("youtube", sub);
@@ -60,6 +72,11 @@ export class WebSubService {
     return ctx.text(challenge);
   }
 
+  /**
+   * Send a subscription request to the WebSub hub
+   * @param channelId A specific YouTube channel that we want to subscribe to
+   * @param callbackUrl The URL that the WebSub hub will send requests to
+   */
   async subscribe(channelId: string, callbackUrl: string): Promise<void> {
     let params = new URLSearchParams({
       "hub.mode": "subscribe",
@@ -82,6 +99,10 @@ export class WebSubService {
     }
   }
 
+  /**
+   * Handle a notification from the WebSub hub
+   * @param clearPolling Whether this notification should clear the subscription polling flag
+   */
   async notify(ctx: RouterContext, clearPolling: boolean): Promise<Response> {
     let videos = this.parseYouTubeFeed(await ctx.c.req.text());
     for (let video of videos) {
@@ -94,6 +115,11 @@ export class WebSubService {
     return ctx.c.body(null, 200);
   }
 
+  /**
+   * Parse the WebSub XML request body into an intermediate data format
+   * @param xml Request body sent via WebSub hub
+   * @returns An array of YouTubeVideo objects
+   */
   private parseYouTubeFeed(xml: string): YouTubeVideo[] {
     let parser = new XMLParser();
     let feed = parser.parse(xml) as YouTubeFeed;
