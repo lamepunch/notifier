@@ -33,6 +33,14 @@ export class AdminController {
     return ctx.json(await this.service.list(ctx.param("provider")));
   }
 
+  @Get("/subscriptions/youtube/hub", {
+    summary: "Check YouTube hub status",
+    description: "Read WebSub hub state and lease expiry for all active YouTube channels.",
+  })
+  async hubStatus(ctx: RouterContext) {
+    return ctx.json(await this.service.youtubeHubStatus());
+  }
+
   @Post("/subscriptions/youtube/resync", {
     summary: "Resync YouTube subscriptions",
     description: "Enqueue WebSub subscription jobs for all active YouTube channels.",

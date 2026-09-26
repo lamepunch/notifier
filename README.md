@@ -38,7 +38,7 @@ polls public uploads via Data API `playlistItems` (uploads playlist `UC…` →
 `UU…`) as a WebSub backup; omitting `polling` disables it.
 
 The daily cron enqueues a WebSub refresh for **active** YouTube channels that
-have not been subscribed in the last 10 days. The queue consumer posts to the
+have not been subscribed in the last 8 days. The queue consumer posts to the
 hub and stores `lastSubscribedAt` on success. A failed subscribe immediately
 enables `polling`; the poll cron then enqueues polling hourly from 8 AM to
 11 PM ET (9 AM to midnight during daylight saving time) while the flag remains

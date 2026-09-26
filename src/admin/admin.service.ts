@@ -61,6 +61,47 @@ export class AdminService {
     };
   }
 
+  /** Scrape the hub's subscription-details page for each active YouTube channel. */
+  async youtubeHubStatus() {
+    if (!this.env.SERVICE_URL) throw new HttpException(500, "SERVICE_URL is not set");
+    let callback = new URL("/webhooks/youtube", this.env.SERVICE_URL).href;
+    let subs = (await this.subscriptions.list<YouTubeRecord>("youtube")).filter(
+      (sub) => sub.active,
+    );
+    let results = await Promise.all(
+      subs.map(async (sub) => {
+        let params = new URLSearchParams({
+          "hub.callback": callback,
+          "hub.topic": `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${sub.id}`,
+          "hub.secret": "",
+        });
+        let response = await fetch(
+          `https://pubsubhubbub.appspot.com/subscription-details?${params}`,
+        );
+        // ponytail: HTML scrape, breaks if Google changes the page layout
+        let text = (await response.text()).replace(/<[^>]*>/g, "\n");
+        let field = (label: string) =>
+          text.match(new RegExp(`${label}\\s+([^\\n]*\\S)`))?.[1] ?? null;
+        return {
+          id: sub.id,
+          name: sub.name,
+          polling: sub.polling === true,
+          lastSubscribedAt: sub.lastSubscribedAt ?? null,
+          state: response.ok ? field("State") : `http ${response.status}`,
+          expiresAt: field("Expiration time"),
+          lastVerifiedAt: field("Last successful verification"),
+          lastVerificationError: field("Last verification error"),
+          lastDeliveryError: field("Last delivery error"),
+        };
+      }),
+    );
+    return {
+      expired: results.filter((r) => r.state !== "verified").length,
+      total: results.length,
+      subscriptions: results,
+    };
+  }
+
   async add(provider: string, alias: string, channel?: string) {
     let found = await lookupByAlias(requireProvider(provider), alias, this.env.YOUTUBE_TOKEN);
     let written = await upsert(found, channel, this.subscriptions);

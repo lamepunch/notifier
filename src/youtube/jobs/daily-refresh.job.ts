@@ -6,6 +6,8 @@ import type { YouTubeSubscription } from "@/types/youtube";
 import { SubscriptionsService } from "@/subscriptions";
 
 const WEBSUB_LEASE_IN_MS = 864_000 * 1_000;
+// Renew before expiry; must exceed the daily cron interval or leases lapse.
+const RENEW_MARGIN_IN_MS = 2 * 24 * 60 * 60 * 1_000;
 
 @Transient()
 export class DailyYouTubeRefreshJob implements CronJob {
@@ -43,7 +45,7 @@ export class DailyYouTubeRefreshJob implements CronJob {
           return (
             !sub.lastSubscribedAt ||
             !Number.isFinite(timestamp) ||
-            Date.now() - timestamp >= WEBSUB_LEASE_IN_MS
+            Date.now() - timestamp >= WEBSUB_LEASE_IN_MS - RENEW_MARGIN_IN_MS
           );
         });
     for (let sub of selected) await this.subscribe(sub.id);

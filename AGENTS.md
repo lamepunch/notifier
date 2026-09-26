@@ -90,7 +90,7 @@ Subscriptions are one KV key per channel in `subs`:
 
 `active: false` skips Discord. `polling: true` enables the WebSub-outage backup through the YouTube Data API.
 
-The daily cron refreshes active YouTube WebSub subscriptions whose lease is missing or older than 10 days. The poll cron runs hourly from 8 AM to 11 PM ET (one hour later during daylight saving time, since cron runs on UTC) and enqueues work for active channels with `polling === true`. Failed WebSub requests enable polling. WebSub notifications for active subscriptions clear polling.
+The daily cron refreshes active YouTube WebSub subscriptions whose lease is missing or older than 8 days (2-day margin before the 10-day lease expires). The poll cron runs hourly from 8 AM to 11 PM ET (one hour later during daylight saving time, since cron runs on UTC) and enqueues work for active channels with `polling === true`. Failed WebSub requests enable polling. WebSub notifications for active subscriptions clear polling.
 
 WebSub verification is supported at `GET /webhooks/youtube` and the backward-compatible fallback `GET /`; the challenge is accepted only for known YouTube subscriptions. Feed uploads are handled at `POST /webhooks/youtube`.
 
