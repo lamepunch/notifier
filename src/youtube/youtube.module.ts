@@ -14,6 +14,7 @@ import {
 } from "@/youtube/webhooks.controller";
 import { WebSubConsumer } from "@/youtube/websub.consumer";
 import { WebSubService } from "@/youtube/websub.service";
+import { YouTubeSubscriptionRepository } from "@/youtube/subscription.repository";
 
 @Module({
   imports: [
@@ -21,7 +22,12 @@ import { WebSubService } from "@/youtube/websub.service";
     QueueModule.registerQueue("websub"),
     QueueModule.registerQueue("poll"),
   ],
-  providers: [YouTubeNotificationService, YouTubePollingService, WebSubService],
+  providers: [
+    YouTubeNotificationService,
+    YouTubePollingService,
+    WebSubService,
+    YouTubeSubscriptionRepository,
+  ],
   controllers: [YouTubeWebhooksController, WebSubFallbackController],
   consumers: [WebSubConsumer, YouTubePollConsumer],
   jobs: [DailyYouTubeRefreshJob, YouTubePollEnqueueJob],

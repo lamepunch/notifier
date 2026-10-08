@@ -2,11 +2,8 @@ import { DI_TOKENS, Singleton, inject } from "stratal/di";
 import type { StratalEnv } from "stratal";
 
 import type { Subscription } from "@/types";
-import type { YouTubeSubscription } from "@/types/youtube";
-import { KICK_PREFIX, YOUTUBE_PREFIX, youtubeVideoSentKey } from "@/kv";
+import { KICK_PREFIX, YOUTUBE_PREFIX } from "@/kv";
 import type { Provider } from "@/types";
-
-const VIDEO_SENT_TTL_IN_S = 7 * 24 * 60 * 60;
 
 @Singleton()
 export class SubscriptionsService {
@@ -24,18 +21,6 @@ export class SubscriptionsService {
     return this.env.subs.put(this.key(provider, record.id), JSON.stringify(record));
   }
 
-  hasSentYouTubeVideo(videoId: string): Promise<boolean> {
-    return this.env.subs.get(youtubeVideoSentKey(videoId)).then(
-      (value) => value !== null,
-    );
-  }
-
-  markYouTubeVideoSent(videoId: string, published: string): Promise<void> {
-    return this.env.subs.put(youtubeVideoSentKey(videoId), published, {
-      expirationTtl: VIDEO_SENT_TTL_IN_S,
-    });
-  }
-
   async list<T>(provider: Provider): Promise<T[]> {
     let prefix = this.prefix(provider);
     // Subscription counts are intentionally small; one page keeps this repository simple.
@@ -51,5 +36,3 @@ export class SubscriptionsService {
     return provider === "kick" ? KICK_PREFIX : YOUTUBE_PREFIX;
   }
 }
-
-export type { YouTubeSubscription } from "@/types/youtube";

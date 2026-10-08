@@ -5,7 +5,7 @@ import type { LoggerService } from "stratal/logger";
 import type { YouTubeSubscription, YouTubeVideo } from "@/types/youtube";
 
 import { DiscordService } from "@/discord/discord.service";
-import { SubscriptionsService } from "@/subscriptions";
+import { YouTubeSubscriptionRepository } from "@/youtube/subscription.repository";
 
 const YOUTUBE_EMBED_COLOR = 16_711_680;
 const ONE_DAY_IN_MS = 24 * 60 * 60 * 1_000;
@@ -14,7 +14,8 @@ const ONE_DAY_IN_MS = 24 * 60 * 60 * 1_000;
 export class YouTubeNotificationService {
   constructor(
     @inject(DiscordService) private readonly discord: DiscordService,
-    @inject(SubscriptionsService) private readonly subscriptions: SubscriptionsService,
+    @inject(YouTubeSubscriptionRepository)
+    private readonly subscriptions: YouTubeSubscriptionRepository,
     @inject(LOGGER_TOKENS.LoggerService) private readonly logger: LoggerService,
   ) {}
 
@@ -23,14 +24,14 @@ export class YouTubeNotificationService {
     ctx: Pick<ExecutionContext, "waitUntil">,
     clearPolling = false,
   ): Promise<void> {
-    let sub = await this.subscriptions.get<YouTubeSubscription>("youtube", video.channelId);
+    let sub = await this.subscriptions.get(video.channelId);
 
     let isSubscribed: boolean = !!sub?.active;
 
     // Clear polling on any hub notification for an active subscription.
     if (clearPolling && isSubscribed && sub?.polling === true) {
       delete sub.polling;
-      await this.subscriptions.save("youtube", sub);
+      await this.subscriptions.save(sub);
       this.logger.info("Cleared YouTube polling after hub notification", {
         channelId: video.channelId,
         videoId: video.videoId,
@@ -44,7 +45,7 @@ export class YouTubeNotificationService {
     let isRecent: boolean = Date.now() - publishedAt < ONE_DAY_IN_MS;
     let hasAlreadySent: boolean =
     isSubscribed && isRecent
-        ? await this.subscriptions.hasSentYouTubeVideo(video.videoId)
+        ? await this.subscriptions.hasSentVideo(video.videoId)
         : false;
     let isAccepted: boolean = isSubscribed && isRecent && !hasAlreadySent;
 
@@ -62,7 +63,7 @@ export class YouTubeNotificationService {
       // ponytail: KV is eventually consistent, so pings landing in
       // different colos within ~60s could double-send; a Durable
       // Object would make this exactly-once if that ever matters.
-      await this.subscriptions.markYouTubeVideoSent(video.videoId, video.published);
+      await this.subscriptions.markVideoSent(video.videoId, video.published);
       try {
         ctx.waitUntil(this.processYouTubeUpload(video, sub));
       } catch (error) {

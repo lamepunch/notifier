@@ -1,19 +1,30 @@
 import XMLParser from "@nodable/flexible-xml-parser";
-import { Singleton, inject } from "stratal/di";
+import type { StratalEnv } from "stratal";
+import { DI_TOKENS, Transient, inject } from "stratal/di";
 import { HttpException } from "stratal/errors";
 import { LOGGER_TOKENS } from "stratal/logger";
 import type { LoggerService } from "stratal/logger";
+import { InjectQueue } from "stratal/queue";
+import type { IQueueSender } from "stratal/queue";
 import type { RouterContext } from "stratal/router";
 
-import type { YouTubeFeed, YouTubeSubscription, YouTubeVideo } from "@/types/youtube";
-import { SubscriptionsService } from "@/subscriptions";
+import type { YouTubeFeed, YouTubeVideo } from "@/types/youtube";
 import { YouTubeNotificationService } from "@/youtube/notifications.service";
+import { YouTubeSubscriptionRepository } from "@/youtube/subscription.repository";
 
-@Singleton()
+const WEBSUB_LEASE_IN_S = 864_000;
+const WEBSUB_LEASE_IN_MS = WEBSUB_LEASE_IN_S * 1_000;
+// Renew before expiry; must exceed the daily cron interval or leases lapse.
+const RENEW_MARGIN_IN_MS = 2 * 24 * 60 * 60 * 1_000;
+const HUB_URL = "https://pubsubhubbub.appspot.com";
+
+@Transient()
 export class WebSubService {
   constructor(
-    @inject(SubscriptionsService)
-    private readonly subscriptions: SubscriptionsService,
+    @inject(DI_TOKENS.CloudflareEnv) private readonly env: StratalEnv,
+    @InjectQueue("websub") private readonly queue: IQueueSender,
+    @inject(YouTubeSubscriptionRepository)
+    private readonly subscriptions: YouTubeSubscriptionRepository,
     @inject(YouTubeNotificationService)
     private readonly notifications: YouTubeNotificationService,
     @inject(LOGGER_TOKENS.LoggerService)
@@ -44,7 +55,7 @@ export class WebSubService {
     let channelId = new URL(topic).searchParams.get("channel_id");
     if (!channelId) throw new HttpException(404, "Missing channel_id");
 
-    let sub = await this.subscriptions.get<YouTubeSubscription>("youtube", channelId);
+    let sub = await this.subscriptions.get(channelId);
     let subscribing = mode === "subscribe";
     this.logger.info("YouTube WebSub verification subscription lookup", {
       channelId,
@@ -65,28 +76,103 @@ export class WebSubService {
 
     if (subscribing && sub) {
       sub.lastVerifiedAt = new Date().toISOString();
-      await this.subscriptions.save("youtube", sub);
+      await this.subscriptions.save(sub);
     }
 
     this.logger.info("YouTube WebSub verification accepted", { channelId, mode });
     return ctx.text(challenge);
   }
 
+  /** The URL that the WebSub hub sends verification and feed requests to. */
+  callbackUrl(): string {
+    if (!this.env.SERVICE_URL) throw new HttpException(500, "SERVICE_URL is not set");
+    return new URL("/webhooks/youtube", this.env.SERVICE_URL).href;
+  }
+
+  /** Queue a WebSub subscribe request for one channel. */
+  enqueue(channelId: string): Promise<void> {
+    return this.queue.dispatch({
+      type: "youtube.websub",
+      payload: { channelId },
+      metadata: { idempotencyKey: crypto.randomUUID() },
+    });
+  }
+
+  /**
+   * Queue subscribe requests for active channels whose lease is missing or
+   * about to expire, or for every active channel when forced.
+   */
+  async resync(
+    force = false,
+  ): Promise<{ count: number; skipped: number; active: number }> {
+    this.callbackUrl();
+    let active = await this.subscriptions.listActive();
+    let selected = force
+      ? active
+      : active.filter((sub) => {
+          let timestamp = Date.parse(sub.lastSubscribedAt ?? "");
+          return (
+            !Number.isFinite(timestamp) ||
+            Date.now() - timestamp >= WEBSUB_LEASE_IN_MS - RENEW_MARGIN_IN_MS
+          );
+        });
+    for (let sub of selected) await this.enqueue(sub.id);
+    return {
+      count: selected.length,
+      skipped: active.length - selected.length,
+      active: active.length,
+    };
+  }
+
+  /** Scrape the hub's subscription-details page for each active channel. */
+  async hubStatus() {
+    let callback = this.callbackUrl();
+    let results = await Promise.all(
+      (await this.subscriptions.listActive()).map(async (sub) => {
+        let params = new URLSearchParams({
+          "hub.callback": callback,
+          "hub.topic": topicUrl(sub.id),
+          "hub.secret": "",
+        });
+        let response = await fetch(`${HUB_URL}/subscription-details?${params}`);
+        // ponytail: HTML scrape, breaks if Google changes the page layout
+        let text = (await response.text()).replace(/<[^>]*>/g, "\n");
+        let field = (label: string) =>
+          text.match(new RegExp(`${label}\\s+([^\\n]*\\S)`))?.[1] ?? null;
+        return {
+          id: sub.id,
+          name: sub.name,
+          polling: sub.polling === true,
+          lastSubscribedAt: sub.lastSubscribedAt ?? null,
+          state: response.ok ? field("State") : `http ${response.status}`,
+          expiresAt: field("Expiration time"),
+          lastVerifiedAt: field("Last successful verification"),
+          lastVerificationError: field("Last verification error"),
+          lastDeliveryError: field("Last delivery error"),
+        };
+      }),
+    );
+    return {
+      expired: results.filter((r) => r.state !== "verified").length,
+      total: results.length,
+      subscriptions: results,
+    };
+  }
+
   /**
    * Send a subscription request to the WebSub hub
    * @param channelId A specific YouTube channel that we want to subscribe to
-   * @param callbackUrl The URL that the WebSub hub will send requests to
    */
-  async subscribe(channelId: string, callbackUrl: string): Promise<void> {
+  async subscribe(channelId: string): Promise<void> {
     let params = new URLSearchParams({
       "hub.mode": "subscribe",
-      "hub.topic": `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${channelId}`,
-      "hub.callback": callbackUrl,
-      "hub.lease_seconds": String(864_000),
+      "hub.topic": topicUrl(channelId),
+      "hub.callback": this.callbackUrl(),
+      "hub.lease_seconds": String(WEBSUB_LEASE_IN_S),
       "hub.verify": "async",
     });
 
-    let response = await fetch("https://pubsubhubbub.appspot.com/subscribe", {
+    let response = await fetch(`${HUB_URL}/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
@@ -152,4 +238,8 @@ export class WebSubService {
 
     return videos;
   }
+}
+
+function topicUrl(channelId: string): string {
+  return `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${channelId}`;
 }

@@ -4,8 +4,7 @@ import { LOGGER_TOKENS } from "stratal/logger";
 import type { LoggerService } from "stratal/logger";
 import { InjectQueue } from "stratal/queue";
 import type { IQueueSender } from "stratal/queue";
-import type { YouTubeSubscription } from "@/types/youtube";
-import { SubscriptionsService } from "@/subscriptions";
+import { YouTubeSubscriptionRepository } from "@/youtube/subscription.repository";
 
 /**
  * Enqueues the polling fallback for active YouTube channels with WebSub issues.
@@ -16,8 +15,8 @@ export class YouTubePollEnqueueJob implements CronJob {
 
   constructor(
     @InjectQueue("poll") private readonly polls: IQueueSender,
-    @inject(SubscriptionsService)
-    private readonly subscriptions: SubscriptionsService,
+    @inject(YouTubeSubscriptionRepository)
+    private readonly subscriptions: YouTubeSubscriptionRepository,
     @inject(LOGGER_TOKENS.LoggerService)
     private readonly logger: LoggerService,
   ) {}
@@ -37,8 +36,8 @@ export class YouTubePollEnqueueJob implements CronJob {
 
   // Queue active YouTube channels whose WebSub subscriptions use polling fallback.
   async enqueuePolls(source = "cron"): Promise<{ count: number }> {
-    let selected = (await this.subscriptions.list<YouTubeSubscription>("youtube")).filter(
-      (sub) => sub.active && sub.polling === true,
+    let selected = (await this.subscriptions.listActive()).filter(
+      (sub) => sub.polling === true,
     );
     for (let sub of selected) await this.poll(sub.id, source);
     return { count: selected.length };

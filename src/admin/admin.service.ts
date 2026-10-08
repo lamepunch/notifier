@@ -11,12 +11,11 @@ import type {
   Subscription,
 } from "@/types";
 import { HttpException } from "stratal/errors";
-import { DailyYouTubeRefreshJob } from "@/youtube/jobs/daily-refresh.job";
+import type { YouTubeSubscription as YouTubeRecord } from "@/types/youtube";
+import { SubscriptionsService } from "@/subscriptions";
 import { YouTubePollEnqueueJob } from "@/youtube/jobs/poll-enqueue.job";
-import {
-  SubscriptionsService,
-  type YouTubeSubscription as YouTubeRecord,
-} from "@/subscriptions";
+import { YouTubeSubscriptionRepository } from "@/youtube/subscription.repository";
+import { WebSubService } from "@/youtube/websub.service";
 
 const PROVIDERS: Provider[] = ["kick", "youtube"];
 const YOUTUBE_ID_RE = /^UC[\w-]{22}$/;
@@ -25,95 +24,61 @@ const YOUTUBE_ID_RE = /^UC[\w-]{22}$/;
 export class AdminService {
   constructor(
     @inject(DI_TOKENS.CloudflareEnv) private readonly env: StratalEnv,
-    @inject(DailyYouTubeRefreshJob)
-    private readonly refreshJob: DailyYouTubeRefreshJob,
+    @inject(WebSubService)
+    private readonly webSub: WebSubService,
     @inject(YouTubePollEnqueueJob)
     private readonly pollJob: YouTubePollEnqueueJob,
     @inject(SubscriptionsService)
     private readonly subscriptions: SubscriptionsService,
+    @inject(YouTubeSubscriptionRepository)
+    private readonly youtube: YouTubeSubscriptionRepository,
   ) {}
 
   async list(provider?: string): Promise<Record<string, Record<string, unknown>>> {
     let names = provider ? [requireProvider(provider)] : PROVIDERS;
     let out: Record<string, Record<string, unknown>> = {};
     for (let name of names) {
-      let records =
+      out[name] =
         name === "kick"
-          ? await this.subscriptions.list<Subscription>("kick")
-          : await this.subscriptions.list<YouTubeRecord>("youtube");
-      out[name] = Object.fromEntries(
-        records.map((record) => [
-          name === "kick"
-            ? this.subscriptions.key("kick", record.id as number)
-            : this.subscriptions.key("youtube", record.id as string),
-          record,
-        ]),
-      );
+          ? Object.fromEntries(
+              (await this.subscriptions.list<Subscription>("kick")).map((record) => [
+                this.subscriptions.key("kick", record.id),
+                record,
+              ]),
+            )
+          : Object.fromEntries(
+              (await this.youtube.list()).map((record) => [
+                this.youtube.key(record.id),
+                record,
+              ]),
+            );
     }
     return out;
   }
 
   async resyncYouTube() {
-    if (!this.env.SERVICE_URL) throw new HttpException(500, "SERVICE_URL is not set");
     return {
       message: "YouTube WebSub jobs enqueued",
-      ...(await this.refreshJob.enqueueSubscriptions(true)),
+      ...(await this.webSub.resync(true)),
     };
   }
 
-  /** Scrape the hub's subscription-details page for each active YouTube channel. */
-  async youtubeHubStatus() {
-    if (!this.env.SERVICE_URL) throw new HttpException(500, "SERVICE_URL is not set");
-    let callback = new URL("/webhooks/youtube", this.env.SERVICE_URL).href;
-    let subs = (await this.subscriptions.list<YouTubeRecord>("youtube")).filter(
-      (sub) => sub.active,
-    );
-    let results = await Promise.all(
-      subs.map(async (sub) => {
-        let params = new URLSearchParams({
-          "hub.callback": callback,
-          "hub.topic": `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${sub.id}`,
-          "hub.secret": "",
-        });
-        let response = await fetch(
-          `https://pubsubhubbub.appspot.com/subscription-details?${params}`,
-        );
-        // ponytail: HTML scrape, breaks if Google changes the page layout
-        let text = (await response.text()).replace(/<[^>]*>/g, "\n");
-        let field = (label: string) =>
-          text.match(new RegExp(`${label}\\s+([^\\n]*\\S)`))?.[1] ?? null;
-        return {
-          id: sub.id,
-          name: sub.name,
-          polling: sub.polling === true,
-          lastSubscribedAt: sub.lastSubscribedAt ?? null,
-          state: response.ok ? field("State") : `http ${response.status}`,
-          expiresAt: field("Expiration time"),
-          lastVerifiedAt: field("Last successful verification"),
-          lastVerificationError: field("Last verification error"),
-          lastDeliveryError: field("Last delivery error"),
-        };
-      }),
-    );
-    return {
-      expired: results.filter((r) => r.state !== "verified").length,
-      total: results.length,
-      subscriptions: results,
-    };
+  youtubeHubStatus() {
+    return this.webSub.hubStatus();
   }
 
   async add(provider: string, alias: string, channel?: string) {
     let found = await lookupByAlias(requireProvider(provider), alias, this.env.YOUTUBE_TOKEN);
-    let written = await upsert(found, channel, this.subscriptions);
     if (found.provider === "youtube") {
-      await this.refreshJob.subscribe(found.record.id);
+      let record = await this.youtube.upsert(found.record, channel);
+      await this.webSub.enqueue(record.id);
       return {
-        ...written,
+        [this.youtube.key(record.id)]: record,
         message: "YouTube WebSub job enqueued",
         channelId: found.record.id,
       };
     }
-    return written;
+    return upsertKick(found.record, channel, this.subscriptions);
   }
 
   async setActive(provider: string, id: string, active: boolean) {
@@ -128,23 +93,17 @@ export class AdminService {
       return { [this.subscriptions.key("kick", userId)]: record };
     }
     requireYouTubeId(id);
-    let existing = await this.subscriptions.get<YouTubeRecord>("youtube", id);
-    if (!existing) throw new HttpException(404, `No YouTube subscription for ${id}`);
-    let record: YouTubeRecord = { ...existing, active };
-    await this.subscriptions.save("youtube", record);
-    return { [this.subscriptions.key("youtube", id)]: record };
+    let record = await this.youtube.setActive(id, active);
+    if (!record) throw new HttpException(404, `No YouTube subscription for ${id}`);
+    return { [this.youtube.key(id)]: record };
   }
 
   async setYouTubePolling(id: string, enabled: boolean) {
     requireYouTubeId(id);
-    let existing = await this.subscriptions.get<YouTubeRecord>("youtube", id);
-    if (!existing) throw new HttpException(404, `No YouTube subscription for ${id}`);
-    let record: YouTubeRecord = { ...existing };
-    if (enabled) record.polling = true;
-    else delete record.polling;
-    await this.subscriptions.save("youtube", record);
+    let record = await this.youtube.setPolling(id, enabled);
+    if (!record) throw new HttpException(404, `No YouTube subscription for ${id}`);
     if (record.polling === true) await this.pollJob.poll(id);
-    return { [this.subscriptions.key("youtube", id)]: record };
+    return { [this.youtube.key(id)]: record };
   }
 }
 
@@ -169,43 +128,21 @@ async function lookupByAlias(
     : { provider, record: await lookupYouTube(alias, youtubeToken) };
 }
 
-async function upsert(
-  found: LookupResult,
-  channel?: string,
-  subscriptions?: SubscriptionsService,
-): Promise<Record<string, Subscription | YouTubeRecord>> {
-  if (!subscriptions) throw new Error("SubscriptionsService is required");
-  if (found.provider === "kick") {
-    let existing = await subscriptions.get<Subscription>("kick", found.record.id);
-    let record: Subscription = {
-      id: found.record.id,
-      slug: found.record.slug,
-      active: true,
-    };
-    record.channel = channel || found.record.channel || existing?.channel;
-    record.links = found.record.links || existing?.links;
-    record.mentions = found.record.mentions || existing?.mentions;
-    if (!record.channel) delete record.channel;
-    if (!record.links) delete record.links;
-    if (!record.mentions) delete record.mentions;
-    await subscriptions.save("kick", record);
-    return { [subscriptions.key("kick", record.id)]: record };
-  }
-  let existing = await subscriptions.get<YouTubeRecord>("youtube", found.record.id);
-  let record: YouTubeRecord = {
-    id: found.record.id,
-    name: found.record.name,
-    url: found.record.url,
-    active: true,
-  };
-  if (found.record.icon) record.icon = found.record.icon;
-  record.channel = channel || existing?.channel;
+async function upsertKick(
+  found: Subscription,
+  channel: string | undefined,
+  subscriptions: SubscriptionsService,
+): Promise<Record<string, Subscription>> {
+  let existing = await subscriptions.get<Subscription>("kick", found.id);
+  let record: Subscription = { id: found.id, slug: found.slug, active: true };
+  record.channel = channel || found.channel || existing?.channel;
+  record.links = found.links || existing?.links;
+  record.mentions = found.mentions || existing?.mentions;
   if (!record.channel) delete record.channel;
-  if (existing?.lastSubscribedAt) record.lastSubscribedAt = existing.lastSubscribedAt;
-  if (existing?.lastVerifiedAt) record.lastVerifiedAt = existing.lastVerifiedAt;
-  if (existing?.polling === true) record.polling = true;
-  await subscriptions.save("youtube", record);
-  return { [subscriptions.key("youtube", record.id)]: record };
+  if (!record.links) delete record.links;
+  if (!record.mentions) delete record.mentions;
+  await subscriptions.save("kick", record);
+  return { [subscriptions.key("kick", record.id)]: record };
 }
 
 async function upstreamError(url: string, response: Response): Promise<never> {

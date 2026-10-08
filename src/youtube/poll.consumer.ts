@@ -1,8 +1,8 @@
 import type { StratalExecutionContext } from "stratal";
 import { DI_TOKENS, Transient, inject } from "stratal/di";
 import type { IQueueConsumer, QueueMessage } from "stratal/queue";
-import type { YouTubePollJob, YouTubeSubscription } from "@/types/youtube";
-import { SubscriptionsService } from "@/subscriptions";
+import type { YouTubePollJob } from "@/types/youtube";
+import { YouTubeSubscriptionRepository } from "@/youtube/subscription.repository";
 import { YouTubeNotificationService } from "@/youtube/notifications.service";
 import { YouTubePollingService } from "@/youtube/polling.service";
 
@@ -17,13 +17,13 @@ export class YouTubePollConsumer implements IQueueConsumer<YouTubePollJob> {
     private readonly polling: YouTubePollingService,
     @inject(YouTubeNotificationService)
     private readonly notifications: YouTubeNotificationService,
-    @inject(SubscriptionsService)
-    private readonly subscriptions: SubscriptionsService,
+    @inject(YouTubeSubscriptionRepository)
+    private readonly subscriptions: YouTubeSubscriptionRepository,
   ) {}
 
   async handle(message: QueueMessage<YouTubePollJob>): Promise<void> {
     let { channelId } = message.payload;
-    let sub = await this.subscriptions.get<YouTubeSubscription>("youtube", channelId);
+    let sub = await this.subscriptions.get(channelId);
     if (!sub?.active || sub.polling !== true) return;
     for (let video of await this.polling.fetchUploadsPlaylistVideos(channelId)) {
       await this.notifications.notifyIfNewYouTubeVideo(video, this.ctx);
