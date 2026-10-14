@@ -10,12 +10,18 @@
     "deploy": "wrangler deploy",
     "start": "wrangler dev --var SERVICE_URL:https://laptop-mbp.corgi-spica.ts.net",
     "cf-typegen": "wrangler types",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write ."
   },
   "devDependencies": {
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^25.9.1",
+    "eslint": "^10.12.0",
     "miniflare": "4.20260521.0",
+    "prettier": "^3.9.10",
     "typescript": "^5.5.2",
+    "typescript-eslint": "^8.71.2",
     "wrangler": "^4.94.0"
   },
   "dependencies": {

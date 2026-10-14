@@ -75,8 +75,9 @@ of truth, and validate changes with the existing typecheck/build commands.
 | `npm start` | Local dev server (wrangler dev) on http://localhost:8787 |
 | `npm run deploy` | Deploy to Cloudflare |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after binding/var/secret changes |
+| `npm run lint` | ESLint (`eslint.config.mjs`); `npx eslint . --fix` applies the style rules |
 
-No test or lint scripts are configured.
+No test scripts are configured. Run `npm run lint` and `npx tsc --noEmit` after code changes.
 
 # Architecture
 
