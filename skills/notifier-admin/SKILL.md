@@ -24,6 +24,13 @@ operation and affected resource and obtain user confirmation unless the user
 has already explicitly authorized that specific change. After mutations,
 re-fetch the affected resource and report any failed or non-persisted changes.
 
+To inspect one YouTube channel, use `GET /admin/subscriptions/youtube/{channelId}`.
+It returns the stored KV record and that channel's live WebSub hub state, so
+it is the first call to make when checking a single subscription. If you only
+know a name or `@handle`, list `GET /admin/subscriptions/youtube` and match on
+`name` or `url` to find the channel ID. For a missing Discord post, follow the
+`notifier-troubleshoot` skill.
+
 Use `curl` or the standard library; do not recreate a project-specific CLI.
 If the OpenAPI document is unavailable, use the route descriptions in the
 Worker source only as a fallback and state that limitation.

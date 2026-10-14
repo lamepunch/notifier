@@ -44,9 +44,7 @@ export class YouTubeNotificationService {
     let publishedAt = new Date(video.published).getTime();
     let isRecent: boolean = Date.now() - publishedAt < ONE_DAY_IN_MS;
     let hasAlreadySent: boolean =
-    isSubscribed && isRecent
-        ? await this.subscriptions.hasSentVideo(video.videoId)
-        : false;
+      isSubscribed && isRecent ? await this.subscriptions.hasSentVideo(video.videoId) : false;
     let isAccepted: boolean = isSubscribed && isRecent && !hasAlreadySent;
 
     this.logger.info(isAccepted ? "Video accepted, sending notification" : "Video skipped", {
@@ -74,10 +72,7 @@ export class YouTubeNotificationService {
     }
   }
 
-  async processYouTubeUpload(
-    video: YouTubeVideo,
-    sub: YouTubeSubscription,
-  ) {
+  async processYouTubeUpload(video: YouTubeVideo, sub: YouTubeSubscription) {
     let { videoId, title, channelName, channelId, videoUrl } = video;
     let thumbnailUrl = `https://i3.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
@@ -102,6 +97,11 @@ export class YouTubeNotificationService {
       content: message,
     });
 
-    await this.discord.sendMessage("youtube", message, sub.channel);
+    let sent = await this.discord.sendMessage("youtube", message, sub.channel);
+
+    if (sent)
+      this.logger.info("YouTube Discord message sent", { videoId, channelId, discord: sent });
+
+    return sent;
   }
 }

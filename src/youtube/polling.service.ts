@@ -5,10 +5,11 @@ import type {
   YouTubePlaylistItem,
   YouTubePlaylistItemsResponse,
   YouTubeVideo,
+  YouTubeVideoListResponse,
 } from "@/types/youtube";
 
-const YOUTUBE_PLAYLIST_ITEMS_URL =
-  "https://www.googleapis.com/youtube/v3/playlistItems";
+const YOUTUBE_PLAYLIST_ITEMS_URL = "https://www.googleapis.com/youtube/v3/playlistItems";
+const YOUTUBE_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
 
 @Transient()
 export class YouTubePollingService {
@@ -16,6 +17,7 @@ export class YouTubePollingService {
 
   async fetchUploadsPlaylistVideos(channelId: string): Promise<YouTubeVideo[]> {
     if (!this.env.YOUTUBE_TOKEN) throw new Error("YOUTUBE_TOKEN is not set");
+
     let params = new URLSearchParams({
       part: "snippet,contentDetails",
       maxResults: "3",
@@ -25,26 +27,55 @@ export class YouTubePollingService {
     let response = await fetch(`${YOUTUBE_PLAYLIST_ITEMS_URL}?${params}`, {
       headers: { Accept: "application/json" },
     });
-    if (!response.ok) {
+
+    if (!response.ok)
       throw new Error(
         `YouTube playlistItems.list failed: ${response.status} ${await response.text()}`,
       );
-    }
+
     let data = (await response.json()) as YouTubePlaylistItemsResponse;
+
     return this.videosFromPlaylistItems(data.items ?? []);
+  }
+
+  /** Look up one video by id; null when YouTube doesn't know it. */
+  async fetchVideo(videoId: string): Promise<YouTubeVideo | null> {
+    if (!this.env.YOUTUBE_TOKEN) throw new Error("YOUTUBE_TOKEN is not set");
+
+    let params = new URLSearchParams({
+      part: "snippet",
+      id: videoId,
+      key: this.env.YOUTUBE_TOKEN,
+    });
+
+    let response = await fetch(`${YOUTUBE_VIDEOS_URL}?${params}`, {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok)
+      throw new Error(`YouTube videos.list failed: ${response.status} ${await response.text()}`);
+
+    let item = ((await response.json()) as YouTubeVideoListResponse).items?.[0];
+
+    if (!item?.id) return null;
+
+    // videos.list snippets match playlistItems snippets for the fields we read.
+    return (
+      this.videosFromPlaylistItems([
+        { snippet: item.snippet, contentDetails: { videoId: item.id } },
+      ])[0] ?? null
+    );
   }
 
   private videosFromPlaylistItems(items: YouTubePlaylistItem[]): YouTubeVideo[] {
     return items.flatMap((item) => {
-      let videoId =
-        item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId;
+      let videoId = item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId;
       let title = item.snippet?.title;
       let channelId = item.snippet?.channelId;
-      let published =
-        item.contentDetails?.videoPublishedAt ??
-        item.snippet?.publishedAt ??
-        "";
+      let published = item.contentDetails?.videoPublishedAt ?? item.snippet?.publishedAt ?? "";
+
       if (!videoId || !title || !channelId) return [];
+
       return [
         {
           videoId,

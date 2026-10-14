@@ -12,15 +12,19 @@ export class DiscordService {
     @inject(LOGGER_TOKENS.LoggerService) private readonly logger: LoggerService,
   ) {}
 
-  async sendMessage(provider: Provider, message: unknown, channelId?: string): Promise<void> {
+  /** Returns where the message was posted, or undefined if Discord rejected it. */
+  async sendMessage(
+    provider: Provider,
+    message: unknown,
+    channelId?: string,
+  ): Promise<{ channelId: string; messageId: string } | undefined> {
     let resolvedChannelId =
       channelId ??
       (provider === "kick"
         ? this.env.DISCORD_DEFAULT_CHANNEL
         : this.env.DISCORD_DEFAULT_YOUTUBE_CHANNEL);
-    if (!resolvedChannelId) {
-      throw new Error(`No Discord channel configured for ${provider}`);
-    }
+
+    if (!resolvedChannelId) throw new Error(`No Discord channel configured for ${provider}`);
 
     let response = await fetch(
       `https://discord.com/api/v10/channels/${resolvedChannelId}/messages`,
@@ -39,6 +43,11 @@ export class DiscordService {
         channelId: resolvedChannelId,
         body: await response.text(),
       });
+      return undefined;
     }
+
+    let { id } = await response.json<{ id: string }>();
+
+    return { channelId: resolvedChannelId, messageId: id };
   }
 }

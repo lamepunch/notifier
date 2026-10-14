@@ -64,6 +64,10 @@ export interface YouTubePlaylistItemsResponse {
   items?: YouTubePlaylistItem[];
 }
 
+export interface YouTubeVideoListResponse {
+  items?: { id?: string; snippet?: YouTubePlaylistItem["snippet"] }[];
+}
+
 export interface YouTubeTarget {
   id?: string;
   handle?: string;

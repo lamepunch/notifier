@@ -8,6 +8,10 @@ const addSubscriptionBody = z.object({
   channel: z.string().trim().min(1).optional(),
 });
 
+const postVideoBody = z.object({
+  channel: z.string().trim().min(1).optional(),
+});
+
 const pollSubscriptionBody = z.object({
   polling: z.boolean(),
 });
@@ -41,6 +45,17 @@ export class AdminController {
     return ctx.json(await this.service.youtubeHubStatus());
   }
 
+  // Registered after /youtube/hub so "hub" isn't captured as :id.
+  @Get("/subscriptions/youtube/:id", {
+    params: z.object({ id: z.string() }),
+    summary: "Get YouTube subscription",
+    description:
+      "Read one stored YouTube subscription by channel id, with its live WebSub hub state.",
+  })
+  async getYouTube(ctx: RouterContext) {
+    return ctx.json(await this.service.getYouTube(ctx.param("id")));
+  }
+
   @Post("/subscriptions/youtube/resync", {
     summary: "Resync YouTube subscriptions",
     description: "Enqueue WebSub subscription jobs for all active YouTube channels.",
@@ -57,7 +72,21 @@ export class AdminController {
   })
   async setPolling(ctx: RouterContext) {
     let body = await ctx.body<Infer<typeof pollSubscriptionBody>>();
+
     return ctx.json(await this.service.setYouTubePolling(ctx.param("id"), body.polling));
+  }
+
+  @Post("/youtube/videos/:videoId/post", {
+    params: z.object({ videoId: z.string() }),
+    body: postVideoBody,
+    summary: "Post YouTube video",
+    description:
+      "Post a video to Discord, skipping dedup and recency checks. Uses the uploader's subscription channel unless `channel` is given.",
+  })
+  async postVideo(ctx: RouterContext) {
+    let body = await ctx.body<Infer<typeof postVideoBody>>();
+
+    return ctx.json(await this.service.postYouTubeVideo(ctx.param("videoId"), body.channel));
   }
 
   @Post("/subscriptions/:provider", {
@@ -68,9 +97,8 @@ export class AdminController {
   })
   async add(ctx: RouterContext) {
     let body = await ctx.body<Infer<typeof addSubscriptionBody>>();
-    return ctx.json(
-      await this.service.add(ctx.param("provider"), body.alias, body.channel),
-    );
+
+    return ctx.json(await this.service.add(ctx.param("provider"), body.alias, body.channel));
   }
 
   @Post("/subscriptions/:provider/:id/status/:state", {
