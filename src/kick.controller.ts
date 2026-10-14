@@ -23,10 +23,10 @@ export class KickWebhooksController {
     // @TODO: verify webhook signature
     if (ctx.header("Kick-Event-Type") === "livestream.status.updated") {
       let data = await ctx.c.req.json<LivestreamStatusUpdated>();
-      if (data.is_live) {
-        ctx.c.executionCtx.waitUntil(this.processWebhook(data));
-      }
+
+      if (data.is_live) ctx.c.executionCtx.waitUntil(this.processWebhook(data));
     }
+
     return ctx.c.body(null, 200);
   }
 
@@ -50,21 +50,17 @@ export class KickWebhooksController {
     let { channel, links, mentions } = sub;
 
     let description = `:link: [Kick](${url})`;
-    if (links) {
+
+    if (links)
       description +=
         " · " +
         Object.entries(links)
-          .map(
-            ([name, link]) =>
-              `[${name[0].toUpperCase() + name.slice(1)}](${link})`,
-          )
+          .map(([name, link]) => `[${name[0].toUpperCase() + name.slice(1)}](${link})`)
           .join(" · ");
-    }
 
     let content = ":red_circle: Stream has gone live!";
-    if (mentions) {
-      content = mentions.map((id) => `<@${id}>`).join(" ") + " " + content;
-    }
+
+    if (mentions) content = mentions.map((id) => `<@${id}>`).join(" ") + " " + content;
 
     let message = {
       content,

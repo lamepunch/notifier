@@ -13,8 +13,6 @@ import { AdminService } from "@/admin/admin.service";
 })
 export class AdminModule implements RouteConfigurable {
   configureRoutes(router: Router): void {
-    router.group([AdminController], (admin) =>
-      admin.middleware(AdminAuthMiddleware),
-    );
+    router.group([AdminController], (admin) => admin.middleware(AdminAuthMiddleware));
   }
 }

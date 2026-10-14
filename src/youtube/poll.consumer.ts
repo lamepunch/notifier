@@ -24,9 +24,10 @@ export class YouTubePollConsumer implements IQueueConsumer<YouTubePollJob> {
   async handle(message: QueueMessage<YouTubePollJob>): Promise<void> {
     let { channelId } = message.payload;
     let sub = await this.subscriptions.get(channelId);
+
     if (!sub?.active || sub.polling !== true) return;
-    for (let video of await this.polling.fetchUploadsPlaylistVideos(channelId)) {
+
+    for (let video of await this.polling.fetchUploadsPlaylistVideos(channelId))
       await this.notifications.notifyIfNewYouTubeVideo(video, this.ctx);
-    }
   }
 }

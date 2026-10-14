@@ -36,9 +36,8 @@ export class YouTubeSubscriptionRepository {
       page.keys.map((entry) => entry.name),
       { type: "json" },
     );
-    return [...values.values()].filter(
-      (value): value is YouTubeSubscription => value !== null,
-    );
+
+    return [...values.values()].filter((value): value is YouTubeSubscription => value !== null);
   }
 
   async listActive(): Promise<YouTubeSubscription[]> {
@@ -51,8 +50,11 @@ export class YouTubeSubscriptionRepository {
    */
   async setActive(channelId: string, active: boolean): Promise<YouTubeSubscription | null> {
     let existing = await this.get(channelId);
+
     if (!existing) return null;
+
     let record: YouTubeSubscription = { ...existing, active };
+
     await this.save(record);
     return record;
   }
@@ -64,10 +66,14 @@ export class YouTubeSubscriptionRepository {
    */
   async setPolling(channelId: string, enabled: boolean): Promise<YouTubeSubscription | null> {
     let existing = await this.get(channelId);
+
     if (!existing) return null;
+
     let record: YouTubeSubscription = { ...existing };
+
     if (enabled) record.polling = true;
     else delete record.polling;
+
     await this.save(record);
     return record;
   }
@@ -86,12 +92,19 @@ export class YouTubeSubscriptionRepository {
       url: found.url,
       active: true,
     };
+
     if (found.icon) record.icon = found.icon;
+
     record.channel = channel || existing?.channel;
+
     if (!record.channel) delete record.channel;
+
     if (existing?.lastSubscribedAt) record.lastSubscribedAt = existing.lastSubscribedAt;
+
     if (existing?.lastVerifiedAt) record.lastVerifiedAt = existing.lastVerifiedAt;
+
     if (existing?.polling === true) record.polling = true;
+
     await this.save(record);
     return record;
   }

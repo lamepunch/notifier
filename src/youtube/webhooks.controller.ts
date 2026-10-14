@@ -12,8 +12,7 @@ const webSubVerification = z
     "hub.lease_seconds": z.string().regex(/^\d+$/).optional(),
   })
   .refine(
-    (query) =>
-      query["hub.mode"] !== "subscribe" || query["hub.lease_seconds"] !== undefined,
+    (query) => query["hub.mode"] !== "subscribe" || query["hub.lease_seconds"] !== undefined,
     { message: "hub.lease_seconds is required when subscribing" },
   );
 
@@ -49,9 +48,8 @@ export class WebSubFallbackController {
   @Get("/")
   verify(ctx: RouterContext): Promise<Response> {
     // This request isn't a valid WebSub verification request, return a 404 instead
-    if (!webSubVerification.safeParse(ctx.query()).success) {
+    if (!webSubVerification.safeParse(ctx.query()).success)
       throw new HttpException(404, "Not found");
-    }
 
     return this.webSub.verify(ctx);
   }

@@ -8,20 +8,13 @@ import { YouTubeNotificationService } from "@/youtube/notifications.service";
 import { YouTubePollEnqueueJob } from "@/youtube/jobs/poll-enqueue.job";
 import { YouTubePollConsumer } from "@/youtube/poll.consumer";
 import { YouTubePollingService } from "@/youtube/polling.service";
-import {
-  YouTubeWebhooksController,
-  WebSubFallbackController,
-} from "@/youtube/webhooks.controller";
+import { YouTubeWebhooksController, WebSubFallbackController } from "@/youtube/webhooks.controller";
 import { WebSubConsumer } from "@/youtube/websub.consumer";
 import { WebSubService } from "@/youtube/websub.service";
 import { YouTubeSubscriptionRepository } from "@/youtube/subscription.repository";
 
 @Module({
-  imports: [
-    DiscordModule,
-    QueueModule.registerQueue("websub"),
-    QueueModule.registerQueue("poll"),
-  ],
+  imports: [DiscordModule, QueueModule.registerQueue("websub"), QueueModule.registerQueue("poll")],
   providers: [
     YouTubeNotificationService,
     YouTubePollingService,

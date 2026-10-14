@@ -24,6 +24,7 @@ export class WebSubConsumer implements IQueueConsumer<WebSubJob> {
   async handle(message: QueueMessage<WebSubJob>) {
     let { channelId } = message.payload;
     let sub = await this.subscriptions.get(channelId);
+
     if (!sub?.active) return;
 
     try {
@@ -44,6 +45,7 @@ export class WebSubConsumer implements IQueueConsumer<WebSubJob> {
           metadata: { idempotencyKey: crypto.randomUUID() },
         });
       }
+
       throw error;
     }
   }

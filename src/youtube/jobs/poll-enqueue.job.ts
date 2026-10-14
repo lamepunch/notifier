@@ -36,10 +36,10 @@ export class YouTubePollEnqueueJob implements CronJob {
 
   // Queue active YouTube channels whose WebSub subscriptions use polling fallback.
   async enqueuePolls(source = "cron"): Promise<{ count: number }> {
-    let selected = (await this.subscriptions.listActive()).filter(
-      (sub) => sub.polling === true,
-    );
+    let selected = (await this.subscriptions.listActive()).filter((sub) => sub.polling === true);
+
     for (let sub of selected) await this.poll(sub.id, source);
+
     return { count: selected.length };
   }
 }

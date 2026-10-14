@@ -29,6 +29,7 @@ export class SubscriptionsService {
       page.keys.map((entry) => entry.name),
       { type: "json" },
     );
+
     return [...values.values()].filter((value): value is T => value !== null);
   }
 
